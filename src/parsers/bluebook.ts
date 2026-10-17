@@ -174,6 +174,29 @@ function splitRun(token: string, pieces: RecordPieces): boolean {
   return found;
 }
 
+/** "3, 5–8, 12" */
+function numberRanges(numbers: number[]): string {
+  const runs: [number, number][] = [];
+  for (const n of numbers) {
+    const last = runs[runs.length - 1];
+    if (last && n === last[1] + 1) last[1] = n;
+    else runs.push([n, n]);
+  }
+  return runs.map(([a, b]) => (a === b ? `${a}` : `${a}–${b}`)).join(', ');
+}
+
+/** A Bluebook results table must give a result for every question; list what's missing. */
+export function incompleteResults(exam: Exam, outcomes: Outcomes): string[] {
+  const errors: string[] = [];
+  for (const section of exam.sections) {
+    const missing = section.questions.filter((q) => !outcomes[q.id]).map((q) => q.number);
+    if (missing.length === section.questions.length) errors.push(`${section.name} is missing from the paste.`);
+    else if (missing.length) errors.push(`${section.name}: no result for question${missing.length === 1 ? '' : 's'} ${numberRanges(missing)}.`);
+  }
+  if (errors.length) errors.push('Copy the whole question table from the Bluebook score details page, including every module, and paste it again.');
+  return errors;
+}
+
 export function parseBluebook(exam: Exam, text: string): ParseResult {
   const collector = new AnswerCollector(exam);
   const lines = text.split(/\r?\n/);
@@ -236,8 +259,6 @@ export function parseBluebook(exam: Exam, text: string): ParseResult {
   }
 
   if (records.length === 0) collector.warn('No Bluebook question rows were found. Copy the whole question table from the score details page.');
-  const total = exam.sections.reduce((n, s) => n + s.questions.length, 0);
-  if (placed > 0 && placed < total) collector.warn(`The paste covers ${placed} of ${total} questions; the rest count as omitted.`);
   if (keyMismatches.length) {
     collector.warn(
       `The pasted correct answers disagree with the selected answer key on ${keyMismatches.length} question(s), so the selected test may not be the one taken. ` +
@@ -247,8 +268,10 @@ export function parseBluebook(exam: Exam, text: string): ParseResult {
 
   const result = collector.result();
   const hasOutcomes = Object.keys(outcomes).length > 0;
+  const errors = hasOutcomes ? incompleteResults(exam, outcomes) : [];
   return {
     ...result,
+    ...(errors.length ? { errors } : {}),
     answered: hasOutcomes ? placed : result.answered,
     ...(hasOutcomes ? { outcomes } : {}),
     ...(Object.keys(categories).length ? { categories } : {}),

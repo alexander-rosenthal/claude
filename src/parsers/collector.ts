@@ -7,6 +7,8 @@ export interface ParseResult {
   /** Number of questions that received a non-blank answer or a graded outcome. */
   answered: number;
   warnings: string[];
+  /** Problems that make the paste unusable as is (e.g. an incomplete Bluebook results table). */
+  errors?: string[];
   /**
    * Already-graded results (Bluebook score details list Correct/Incorrect
    * rather than the letters chosen). Present only for results pastes.

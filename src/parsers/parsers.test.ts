@@ -187,12 +187,25 @@ describe('Bluebook paste', () => {
     const spr = realSat.sections[2].questions.find((x) => x.type === 'spr')!;
     rows.push(`${spr.number}\tMath\t${spr.correct[0]}\t${spr.correct[0]}`);
 
-    const { responses, outcomes, warnings } = parseBluebook(realSat, rows.join('\n'));
+    const { responses, outcomes, warnings, errors } = parseBluebook(realSat, rows.join('\n'));
     expect(responses['rw1-27']).toBe(q('rw1', 27).correct[0]);
     expect(outcomes!['rw2-1']).toBe('omitted');
     expect(responses[spr.id]).toBe(spr.correct[0]);
     expect(outcomes![spr.id]).toBe('correct'); // derived from the pasted key
-    expect(warnings).toEqual(['The paste covers 29 of 98 questions; the rest count as omitted.']);
+    expect(warnings).toEqual([]);
+    // Only part of the table was pasted, so it can't be graded as is.
+    expect(errors).toContain('Reading and Writing — Module 2: no result for questions 2–27.');
+    expect(errors).toContain('Math — Module 2 is missing from the paste.');
+  });
+
+  it('lists the questions missing from a cut-off Bluebook paste', () => {
+    expect(parseBluebook(sat, pt4Results).errors).toBeUndefined();
+    const cut = pt4Results.slice(0, pt4Results.lastIndexOf('21\tMath'));
+    const { errors } = parseBluebook(sat, cut);
+    expect(errors).toEqual([
+      'Math — Module 2: no result for questions 21–22.',
+      'Copy the whole question table from the Bluebook score details page, including every module, and paste it again.',
+    ]);
   });
 
   it('honors a header that puts your answer first', () => {

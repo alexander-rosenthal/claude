@@ -58,8 +58,8 @@ are duplicates ("(1)" copies).
 
 ## Official score entry
 
-- Official scores are optional for now. They become required automatically,
-  along with a ±20 check against the estimate, once no more than 3% of
-  leave-one-out estimates miss by more than 20 (`SCORE_CHECK`). Today: 13%.
+- Official scores are optional, with format checks only (200–800, ending in
+  0). There is no check against the estimate. Grading with official scores or
+  pasted Bluebook results needs the user's accuracy confirmation.
 - Every graded official score is saved in the browser and used for the next
   estimate. Sharing across users needs Export/Import, or a server later.

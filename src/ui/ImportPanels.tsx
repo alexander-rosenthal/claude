@@ -24,9 +24,20 @@ export function ParseNotice({ result }: { result: ParseResult | null }) {
   const isResults = Boolean(result.outcomes);
   return (
     <>
-      <div className={`notice ${result.answered ? 'ok' : 'error'}`}>
+      <div className={`notice ${result.answered && !result.errors?.length ? 'ok' : 'error'}`}>
         {isResults ? (
-          <>Read Bluebook results for {result.answered} question{result.answered === 1 ? '' : 's'}.</>
+          <>
+            Read Bluebook results for {result.answered} question{result.answered === 1 ? '' : 's'}.
+            {result.errors?.length ? (
+              <ul>
+                {result.errors.map((e, i) => (
+                  <li key={i}>{e}</li>
+                ))}
+              </ul>
+            ) : (
+              ' Enter the official scores if you have them, then grade the test.'
+            )}
+          </>
         ) : (
           <>
             Read {result.answered} answer{result.answered === 1 ? '' : 's'}.

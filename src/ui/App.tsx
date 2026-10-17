@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { estimateReport, leaveOneOut, mergePoints, pointsFromReport, sameResult, samePoint, scoreCheckReady, type CalibrationPoint } from '../core/calibration';
+import { estimateReport, leaveOneOut, mergePoints, pointsFromReport, sameResult, samePoint, type CalibrationPoint } from '../core/calibration';
 import { grade, type GradeReport } from '../core/grader';
 import { ROUTE_METHOD_LABEL, routeByAnswers, routedSections, type ModuleChoice } from '../core/routing';
 import type { AnswerKey, Exam, Responses } from '../core/types';
@@ -60,11 +60,9 @@ export function App() {
   );
   const pool = useMemo(() => allPoints(savedPoints), [savedPoints]);
   const accuracy = useMemo(() => leaveOneOut(pool, scaleForPoint), [pool]);
-  // Official scores are required and checked only once the model is accurate enough (SCORE_CHECK).
-  const enforced = scoreCheckReady(accuracy);
-  // The model's estimates, used only to flag a mistyped official score (never shown before grading).
-  const estimates = useMemo(() => Object.fromEntries(estimateReport(graded, pool).scales.map((s) => [s.scale.id, s.estimate])), [graded, pool]);
-  const check = checkOfficialScores(graded.exam, actualInput, estimates, confirmed, enforced);
+  const pasteErrors = pasted?.result.errors ?? [];
+  const check = checkOfficialScores(graded.exam, actualInput, { confirmed, bluebookResults: Boolean(pasted) });
+  const canGrade = check.ok && pasteErrors.length === 0;
 
   /**
    * Grade with the official scores, and save them to train the model. A
@@ -72,7 +70,7 @@ export function App() {
    * typo), and the report's estimate never uses its own score.
    */
   const gradeTest = () => {
-    if (!check.ok) return;
+    if (!canGrade) return;
     const scored = estimateReport(graded, pool, check.scores);
     setReport(scored);
     const added = pointsFromReport(scored).filter((p) => !BUILTIN_CALIBRATION.some((b) => samePoint(b, p)));
@@ -81,6 +79,7 @@ export function App() {
 
   const loadResponses = (next: Responses) => {
     setPasted(null);
+    setConfirmed(false);
     setResponses(next);
   };
 
@@ -186,7 +185,7 @@ export function App() {
             })}
           </div>
         )}
-        <ActualScoreInputs exam={graded.exam} values={actualInput} onChange={setActualInput} check={check} confirmed={confirmed} onConfirm={setConfirmed} enforced={enforced} />
+        <ActualScoreInputs exam={graded.exam} values={actualInput} onChange={setActualInput} check={check} confirmed={confirmed} onConfirm={setConfirmed} />
         <CalibrationSummary saved={savedPoints} accuracy={accuracy} onChange={updatePoints} />
         {exam.key.isDemo && (
           <p className="muted small" style={{ marginBottom: 0 }}>
@@ -232,7 +231,10 @@ export function App() {
           <PastePanel
             exam={exam}
             onLoad={loadResponses}
-            onResults={(g, r) => setPasted({ grading: g, result: r })}
+            onResults={(g, r) => {
+              setPasted({ grading: g, result: r });
+              setConfirmed(false);
+            }}
           />
         )}
         {tab === 'upload' && <UploadPanel exam={exam} onLoad={loadResponses} />}
@@ -254,9 +256,13 @@ export function App() {
           </span>
         )}
         <span style={{ flex: 1 }} />
-        {!check.ok && (
+        {!canGrade && (
           <span className="muted small">
-            {check.errors.find((e) => e.startsWith('Enter the official')) ? 'Enter the official scores to grade.' : check.errors.length ? 'Fix the official scores to grade.' : 'Confirm the official scores to grade.'}
+            {pasteErrors.length
+              ? 'The pasted results are incomplete; see Paste.'
+              : check.errors.length
+                ? 'Fix the official scores to grade.'
+                : 'Confirm the data is accurate to grade.'}
           </span>
         )}
         <button
@@ -272,7 +278,7 @@ export function App() {
         >
           Clear
         </button>
-        <button className="btn primary" disabled={!check.ok} onClick={gradeTest}>
+        <button className="btn primary" disabled={!canGrade} onClick={gradeTest}>
           Grade test
         </button>
       </div>
