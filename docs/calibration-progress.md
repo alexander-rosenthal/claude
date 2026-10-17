@@ -40,3 +40,18 @@ are duplicates ("(1)" copies).
   and 5 (Math) are too low.
 - Rerun: `node scripts/extract-nlt-report.mjs data/nlt-reports.json <pdfs...>`
   (needs the original PDFs, which are not in the repo).
+
+## Error floor (target: average error below 8)
+
+- Students with the same test, Module 2 version and raw score get Bluebook
+  scores up to 40 points apart (23 such groups). This holds even with the same
+  Module 1 / Module 2 split, so Bluebook's score depends on which questions
+  were answered (item response theory), not only how many.
+- Pooled within-group SD is 14.1, so any raw-score model has an expected
+  average error of about ±11, however much data it gets. Current: ±13.5.
+- Weighting questions by observed difficulty made it worse (±14.6 → ±16.6 or
+  higher in a leave-one-out test). That fits IRT: what makes a question count
+  more is its discrimination, not its difficulty.
+- Below ±8 needs an item-level (2PL/3PL) model per test, which conventionally
+  needs several hundred to 1000+ students per question (per Module 2 version
+  for Module 2 questions).
