@@ -14,6 +14,8 @@
 
 export type QuestionType = 'mc' | 'spr'; // multiple choice | student-produced response (grid-in)
 
+export type QuestionStatus = 'correct' | 'incorrect' | 'omitted';
+
 export interface SectionFormat {
   id: string;
   name: string;
@@ -36,6 +38,13 @@ export interface ScaleAnchor {
   scaled: number;
 }
 
+/** One row of an official conversion table that reports a score range. */
+export interface ScaleRange {
+  raw: number;
+  lower: number;
+  upper: number;
+}
+
 export interface ScoreScale {
   id: string;
   name: string;
@@ -49,6 +58,11 @@ export interface ScoreScale {
    * score.
    */
   anchors: ScaleAnchor[];
+  /**
+   * Official raw → (lower, upper) table, one row per raw score. When present
+   * it takes precedence over `anchors` and the report shows ranges.
+   */
+  ranges?: ScaleRange[];
   /** True when the conversion is an estimate rather than an official table. */
   estimated: boolean;
 }
@@ -69,12 +83,14 @@ export interface ExamFormat {
   sections: SectionFormat[];
   scales: ScoreScale[];
   composites: CompositeScore[];
+  /** Where the score conversion comes from, shown under the scores. */
+  scoreNote?: string;
 }
 
 export interface AnswerKeyEntry {
   sectionId: string;
   number: number;
-  /** One or more acceptable answers. */
+  /** One or more acceptable answers; empty only in a results-only key. */
   correct: string[];
   category: string;
   subcategory: string;
@@ -86,6 +102,11 @@ export interface AnswerKey {
   formatId: string;
   /** Placeholder keys ship for demoing the tool; real keys are imported. */
   isDemo: boolean;
+  /**
+   * The correct answers aren't known; outcomes arrive already graded (e.g. a
+   * Bluebook results paste) and the key only supplies categories.
+   */
+  resultsOnly?: boolean;
   entries: AnswerKeyEntry[];
 }
 
@@ -118,6 +139,9 @@ export interface Exam {
 
 /** Student responses keyed by Question.id. Missing or '' means omitted. */
 export type Responses = Record<string, string>;
+
+/** Already-graded outcomes keyed by Question.id; these override responses. */
+export type Outcomes = Record<string, QuestionStatus>;
 
 export function questionId(sectionId: string, number: number): string {
   return `${sectionId}-${number}`;

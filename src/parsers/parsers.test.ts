@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { DEMO_EXAMS } from '../exams';
+import { grade } from '../core/grader';
+import { DEMO_EXAMS, OFFICIAL_EXAMS } from '../exams';
 import { SAT_FORMAT } from '../exams/formats';
 import { answerKeyFromRows, answerKeyTemplate } from './answerKey';
-import { cleanBluebookAnswer, parseBluebook } from './bluebook';
+import { bluebookTargetExam, cleanBluebookAnswer, examForBluebookResults, parseBluebook } from './bluebook';
 import { parsePastedResponses, responsesFromRows } from './responses';
+import pt4Results from './fixtures/bluebook-pt4-results.txt?raw';
 import { parseDelimited } from './table';
 import { buildExam } from '../core/exam';
 
@@ -75,7 +77,9 @@ Math Module 1
 });
 
 describe('Bluebook paste', () => {
-  const q = (s: string, n: number) => sat.sections.find((x) => x.id === s)!.questions[n - 1];
+  // A digital key treated as real (not demo), so key cross-checks apply.
+  const realSat = buildExam(SAT_FORMAT, { ...sat.key, id: 'real', isDemo: false });
+  const q = (s: string, n: number) => realSat.sections.find((x) => x.id === s)!.questions[n - 1];
 
   it('cleans answer cells', () => {
     expect(cleanBluebookAnswer('B; Correct')).toBe('B');
@@ -84,31 +88,86 @@ describe('Bluebook paste', () => {
     expect(cleanBluebookAnswer('Your answer: C')).toBe('C');
   });
 
-  it('reads a tabbed table and infers modules from numbering', () => {
+  describe('score details results (Practice Test 4)', () => {
+    it('reads every question, outcome and domain without an answer key', () => {
+      const result = parsePastedResponses(sat, pt4Results);
+      expect(result.warnings).toEqual([]);
+      expect(result.answered).toBe(98);
+      expect(Object.keys(result.outcomes!)).toHaveLength(98);
+      expect(Object.keys(result.categories!)).toHaveLength(98);
+      expect(result.responses).toEqual({});
+      expect(result.outcomes).toMatchObject({ 'rw1-1': 'correct', 'rw1-2': 'incorrect', 'rw2-1': 'correct', 'math2-22': 'incorrect' });
+      expect(result.categories).toMatchObject({ 'rw1-6': 'Craft and Structure', 'rw2-9': 'Craft and Structure', 'math1-2': 'Problem-Solving and Data Analysis' });
+    });
+
+    it('grades from the pasted outcomes', () => {
+      const target = bluebookTargetExam(sat);
+      const result = parseBluebook(target, pt4Results);
+      const exam = examForBluebookResults(target, result);
+      expect(exam.key.resultsOnly).toBe(true);
+      const report = grade(exam, result.responses, result.outcomes);
+      const [rw, math] = report.scales;
+      expect(rw.sections.map((s) => s.tally.correct)).toEqual([4, 14]);
+      expect(math.sections.map((s) => s.tally.correct)).toEqual([9, 6]);
+      expect(rw.raw).toBe(18);
+      expect(math.raw).toBe(15);
+      const craft = rw.categories.find((c) => c.name === 'Craft and Structure')!;
+      expect(craft.tally).toMatchObject({ correct: 5, total: 15 });
+      expect(math.categories.map((c) => c.name).sort()).toEqual(['Advanced Math', 'Algebra', 'Geometry and Trigonometry', 'Problem-Solving and Data Analysis']);
+    });
+
+    it('reads against the digital layout even when the paper key is selected', () => {
+      const paper = OFFICIAL_EXAMS[0];
+      expect(paper.format.id).toBe('sat-paper');
+      const result = parsePastedResponses(paper, pt4Results);
+      expect(result.outcomes!['math2-22']).toBe('incorrect');
+      expect(result.warnings).toEqual([]);
+    });
+
+    it('survives tabs turned into spaces', () => {
+      const result = parsePastedResponses(sat, pt4Results.replace(/\t+/g, ' '));
+      expect(Object.keys(result.outcomes!)).toHaveLength(98);
+      expect(result.warnings).toEqual([]);
+    });
+
+    it('cross-checks domains against a real digital key', () => {
+      const result = parseBluebook(realSat, pt4Results);
+      expect(examForBluebookResults(realSat, result)).toBe(realSat);
+      expect(result.warnings.join(' ')).toMatch(/domains differ/);
+    });
+  });
+
+  it('grades a table with correct and chosen answers', () => {
     const rows = ['Question\tSection\tCorrect Answer\tYour Answer'];
     for (let n = 1; n <= 27; n++) rows.push(`${n}\tReading and Writing\t${q('rw1', n).correct[0]}\t${q('rw1', n).correct[0]}; Correct`);
     rows.push(`1\tReading and Writing\t${q('rw2', 1).correct[0]}\tOmitted`);
-    const spr = sat.sections[2].questions.find((x) => x.type === 'spr')!;
-    rows.push(`${spr.number}\tMath\t${spr.correct[0]}\t${spr.correct[0]}; Correct`);
+    const spr = realSat.sections[2].questions.find((x) => x.type === 'spr')!;
+    rows.push(`${spr.number}\tMath\t${spr.correct[0]}\t${spr.correct[0]}`);
 
-    const text = rows.join('\n');
-    const { responses, warnings } = parsePastedResponses(sat, text);
+    const { responses, outcomes, warnings } = parseBluebook(realSat, rows.join('\n'));
     expect(responses['rw1-27']).toBe(q('rw1', 27).correct[0]);
-    expect(responses['rw2-1']).toBe('');
+    expect(outcomes!['rw2-1']).toBe('omitted');
     expect(responses[spr.id]).toBe(spr.correct[0]);
-    expect(warnings).toEqual([]);
+    expect(outcomes![spr.id]).toBe('correct'); // derived from the pasted key
+    expect(warnings).toEqual(['The paste covers 29 of 98 questions; the rest count as omitted.']);
   });
 
-  it('warns when the pasted key disagrees with the loaded key', () => {
+  it('honors a header that puts your answer first', () => {
+    const { responses } = parseBluebook(realSat, 'Question\tSection\tYour Answer\tCorrect Answer\n1\tReading and Writing\tC\tB');
+    expect(responses['rw1-1']).toBe('C');
+  });
+
+  it('warns when the pasted key disagrees with the selected key', () => {
     const right = q('rw1', 1).correct[0];
     const wrong = ['A', 'B', 'C', 'D'].find((c) => c !== right)!;
-    const { warnings } = parseBluebook(sat, `1\tReading and Writing\t${wrong}\t${right}; Incorrect`);
+    const { warnings } = parseBluebook(realSat, `1\tReading and Writing\t${wrong}\t${right}; Incorrect`);
     expect(warnings.join(' ')).toMatch(/disagree/);
   });
 
   it('reads rows flattened to single spaces', () => {
-    const { responses } = parseBluebook(sat, '1 Reading and Writing Module 2 B C; Incorrect');
+    const { responses, outcomes } = parseBluebook(realSat, '1 Reading and Writing Module 2 B C; Incorrect');
     expect(responses['rw2-1']).toBe('C');
+    expect(outcomes!['rw2-1']).toBe('incorrect');
   });
 });
 

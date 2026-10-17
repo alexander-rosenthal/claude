@@ -1,12 +1,21 @@
 import { normalizeResponse } from '../core/answers';
-import type { Exam, Responses, Section } from '../core/types';
+import type { Exam, Outcomes, Question, Responses, Section } from '../core/types';
 import { resolveSectionLabel } from './sections';
 
 export interface ParseResult {
   responses: Responses;
-  /** Number of questions that received a non-blank answer. */
+  /** Number of questions that received a non-blank answer or a graded outcome. */
   answered: number;
   warnings: string[];
+  /**
+   * Already-graded results (Bluebook score details list Correct/Incorrect
+   * rather than the letters chosen). Present only for results pastes.
+   */
+  outcomes?: Outcomes;
+  /** Category (Bluebook "Domain") per question, when the paste lists it. */
+  categories?: Record<string, string>;
+  /** Subcategory (skill) per question, when the paste lists it. */
+  subcategories?: Record<string, string>;
 }
 
 /**
@@ -75,11 +84,35 @@ export class AnswerCollector {
 
   /** Record an answer. `number` null means "the next question". */
   add(number: number | null, raw: string, where = '') {
+    const question = this.locate(number, where, `"${raw}"`);
+    if (question) this.record(question, raw);
+  }
+
+  /** Store a response for a question already found with `locate`. */
+  record(question: Question, raw: string) {
+    const section = this.exam.sections.find((s) => s.id === question.sectionId)!;
+    const normalized = normalizeResponse(question, raw);
+    if (!normalized.valid) {
+      this.warn(`${section.shortName} #${question.number}: "${raw}" isn't a valid answer${question.type === 'mc' ? ` (choices ${question.choices.join('/')})` : ''}; it will be graded as incorrect.`);
+    }
+    const previous = this.responses[question.id];
+    if (previous && normalized.value && previous !== normalized.value) {
+      this.warn(`${section.shortName} #${question.number} appears more than once ("${previous}" then "${normalized.value}"); kept the last one.`);
+    }
+    this.responses[question.id] = normalized.value ?? '';
+  }
+
+  /**
+   * Advance to the question a number refers to (applying the section rules
+   * above) without recording anything. Returns null, with a warning, when no
+   * question matches.
+   */
+  locate(number: number | null, where = '', what = 'Answer'): Question | null {
     const at = where ? ` (${where})` : '';
     let section = this.current;
     if (!section) {
-      this.warn(`Extra answer "${raw}"${at}: every question already has an answer slot filled.`);
-      return;
+      this.warn(`Extra ${what}${at}: every question is already filled.`);
+      return null;
     }
 
     let n: number;
@@ -90,8 +123,8 @@ export class AnswerCollector {
         section = this.current;
         n = 1;
         if (!section) {
-          this.warn(`Extra answer "${raw}"${at}: more answers than questions.`);
-          return;
+          this.warn(`Extra ${what}${at}: more answers than questions.`);
+          return null;
         }
       }
     } else {
@@ -105,7 +138,7 @@ export class AnswerCollector {
         const located = this.locateRunning(n);
         if (!located) {
           this.warn(`Question ${n}${at} is beyond the last question of ${section.name}.`);
-          return;
+          return null;
         }
         [section, n] = located;
         this.index = this.scope.indexOf(section);
@@ -116,17 +149,9 @@ export class AnswerCollector {
     const question = section.questions[n - 1];
     if (!question) {
       this.warn(`${section.name} #${n}${at} has no matching question.`);
-      return;
+      return null;
     }
-    const normalized = normalizeResponse(question, raw);
-    if (!normalized.valid) {
-      this.warn(`${section.shortName} #${n}: "${raw}" isn't a valid answer${question.type === 'mc' ? ` (choices ${question.choices.join('/')})` : ''}; it will be graded as incorrect.`);
-    }
-    const previous = this.responses[question.id];
-    if (previous && normalized.value && previous !== normalized.value) {
-      this.warn(`${section.shortName} #${n} appears more than once ("${previous}" then "${normalized.value}"); kept the last one.`);
-    }
-    this.responses[question.id] = normalized.value ?? '';
+    return question;
   }
 
   private locateRunning(n: number): [Section, number] | null {

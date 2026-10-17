@@ -1,8 +1,8 @@
 import { isCorrect, normalizeResponse } from './answers';
-import { computeComposite, toScaled } from './scoring';
-import type { CompositeScore, Exam, Question, Responses, ScoreScale, Section } from './types';
+import { computeComposite, computeCompositeRange, toScaled, toScaledRange, type ScoreRange } from './scoring';
+import type { CompositeScore, Exam, Outcomes, Question, QuestionStatus, Responses, ScoreScale, Section } from './types';
 
-export type QuestionStatus = 'correct' | 'incorrect' | 'omitted';
+export type { QuestionStatus };
 
 export interface QuestionResult {
   question: Question;
@@ -45,6 +45,8 @@ export interface ScaleResult {
   raw: number;
   maxRaw: number;
   scaled: number;
+  /** Official score range, when the scale's conversion table gives one. */
+  range: ScoreRange | null;
   tally: Tally;
   sections: SectionResult[];
   categories: CategoryResult[];
@@ -53,6 +55,7 @@ export interface ScaleResult {
 export interface CompositeResult {
   composite: CompositeScore;
   value: number;
+  range: ScoreRange | null;
 }
 
 export interface GradeReport {
@@ -94,12 +97,17 @@ function categoryBreakdown(results: QuestionResult[]): CategoryResult[] {
   }));
 }
 
-export function grade(exam: Exam, responses: Responses): GradeReport {
+/**
+ * Grade responses against the exam's key. `outcomes` holds questions that were
+ * already graded elsewhere (e.g. pasted from Bluebook); they take precedence.
+ */
+export function grade(exam: Exam, responses: Responses, outcomes: Outcomes = {}): GradeReport {
   const questions: QuestionResult[] = exam.sections.flatMap((section) =>
     section.questions.map((question) => {
       const raw = responses[question.id];
       const { value, valid } = normalizeResponse(question, raw);
-      const status: QuestionStatus = value == null ? 'omitted' : isCorrect(question, raw) ? 'correct' : 'incorrect';
+      const status: QuestionStatus =
+        outcomes[question.id] ?? (value == null ? 'omitted' : isCorrect(question, raw) ? 'correct' : 'incorrect');
       return {
         question,
         sectionId: section.id,
@@ -120,6 +128,7 @@ export function grade(exam: Exam, responses: Responses): GradeReport {
       raw: t.correct,
       maxRaw: t.total,
       scaled: toScaled(scale, t.correct),
+      range: toScaledRange(scale, t.correct),
       tally: t,
       sections: sections.map((section) => ({
         section,
@@ -130,9 +139,10 @@ export function grade(exam: Exam, responses: Responses): GradeReport {
   });
 
   const scaledById = Object.fromEntries(scales.map((s) => [s.scale.id, s.scaled]));
+  const rangesById = Object.fromEntries(scales.map((s) => [s.scale.id, s.range]));
   const composites: CompositeResult[] = exam.composites.flatMap((composite) => {
     const value = computeComposite(composite, scaledById);
-    return value == null ? [] : [{ composite, value }];
+    return value == null ? [] : [{ composite, value, range: computeCompositeRange(composite, rangesById) }];
   });
 
   return { exam, gradedAt: new Date(), questions, scales, composites, overall: tally(questions) };

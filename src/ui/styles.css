@@ -318,6 +318,13 @@ textarea {
 .tile.hero .value {
   font-size: 44px;
 }
+.tile .value.is-range {
+  font-size: 26px;
+  padding: 4px 0 2px;
+}
+.tile.hero .value.is-range {
+  font-size: 34px;
+}
 .tile .range {
   color: var(--muted);
   font-size: 12px;
@@ -487,7 +494,15 @@ table.data tr.sub td:first-child {
   gap: 16px;
 }
 
+@media (min-width: 601px) {
+  .show-sm {
+    display: none;
+  }
+}
 @media (max-width: 600px) {
+  .tile.hero {
+    grid-column: 1 / -1;
+  }
   .tile.hero .value {
     font-size: 36px;
   }

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { grade, type GradeReport } from '../core/grader';
 import type { AnswerKey, Exam, Responses } from '../core/types';
-import { DEMO_EXAMS, examFromKey, loadSavedKeys, saveKeys } from '../exams';
+import { BUILTIN_EXAMS, examFromKey, loadSavedKeys, saveKeys } from '../exams';
 import { BubbleSheet } from './BubbleSheet';
 import { PastePanel, UploadPanel } from './ImportPanels';
 import { KeyImport } from './KeyImport';
@@ -21,7 +21,7 @@ function safeExams(keys: AnswerKey[]): Exam[] {
 
 export function App() {
   const [savedKeys, setSavedKeys] = useState<AnswerKey[]>(loadSavedKeys);
-  const exams = useMemo(() => [...safeExams(savedKeys), ...DEMO_EXAMS], [savedKeys]);
+  const exams = useMemo(() => [...safeExams(savedKeys), ...BUILTIN_EXAMS], [savedKeys]);
   const [examId, setExamId] = useState(exams[0].id);
   const exam = exams.find((e) => e.id === examId) ?? exams[0];
 
@@ -54,7 +54,7 @@ export function App() {
     const next = savedKeys.filter((k) => k.id !== exam.key.id);
     setSavedKeys(next);
     saveKeys(next);
-    setExamId(DEMO_EXAMS[0].id);
+    setExamId(BUILTIN_EXAMS[0].id);
     setResponses({});
   };
 
@@ -89,7 +89,7 @@ export function App() {
           <span className="muted small">
             {exam.format.name} · {total} questions
           </span>
-          {!exam.key.isDemo && (
+          {savedKeys.some((k) => k.id === exam.key.id) && (
             <button className="btn link small" onClick={removeKey}>
               Remove key
             </button>
@@ -98,6 +98,12 @@ export function App() {
         {exam.key.isDemo && (
           <p className="muted small" style={{ marginBottom: 0 }}>
             This test uses a placeholder answer key for trying out the grader. Import a real key under “Answer key”.
+          </p>
+        )}
+        {exam.format.id === 'sat-paper' && (
+          <p className="muted small" style={{ marginBottom: 0 }}>
+            For answer sheets from the paper version (33 Reading and Writing and 27 Math questions per module). For a test taken in
+            Bluebook, paste its score details under “Paste” instead.
           </p>
         )}
       </section>
@@ -121,7 +127,9 @@ export function App() {
         {tab === 'sheet' && (
           <BubbleSheet key={exam.id} exam={exam} responses={responses} onChange={(id, v) => setResponses((r) => ({ ...r, [id]: v }))} />
         )}
-        {tab === 'paste' && <PastePanel exam={exam} onLoad={setResponses} />}
+        {tab === 'paste' && (
+          <PastePanel exam={exam} onLoad={setResponses} onResults={(graded, r) => setReport(grade(graded, r.responses, r.outcomes))} />
+        )}
         {tab === 'upload' && <UploadPanel exam={exam} onLoad={setResponses} />}
         {tab === 'key' && <KeyImport onImported={importKey} />}
       </section>

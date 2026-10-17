@@ -2,7 +2,7 @@
  * Turn pasted text or spreadsheet rows into student responses.
  */
 import type { Exam } from '../core/types';
-import { parseBluebook, looksLikeBluebook } from './bluebook';
+import { bluebookTargetExam, looksLikeBluebook, parseBluebook } from './bluebook';
 import { AnswerCollector, type ParseResult } from './collector';
 import { findHeader, isEmptyRow, isInteger, parseDelimited, type Row } from './table';
 
@@ -70,7 +70,7 @@ const LETTER_RUN = /^[A-Ka-k\-–—_\s,]+$/;
  * handed to their own parsers.
  */
 export function parsePastedResponses(exam: Exam, text: string): ParseResult {
-  if (exam.family === 'SAT' && looksLikeBluebook(text)) return parseBluebook(exam, text);
+  if (exam.family === 'SAT' && looksLikeBluebook(text)) return parseBluebook(bluebookTargetExam(exam), text);
 
   const lines = text.split(/\r?\n/).filter((l) => l.trim());
   if (lines.length && lines.filter((l) => l.includes('\t')).length >= lines.length / 2) {

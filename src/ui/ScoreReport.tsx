@@ -1,5 +1,6 @@
 import { Fragment, useMemo, useState } from 'react';
 import type { CategoryResult, GradeReport, QuestionResult, QuestionStatus, ScaleResult, Tally } from '../core/grader';
+import type { ScoreRange } from '../core/scoring';
 import { downloadText, rowsToCsv } from '../parsers/files';
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
@@ -37,12 +38,23 @@ function Legend() {
   );
 }
 
-function ScoreTile({ label, value, min, max, sub, hero }: { label: string; value: number; min: number; max: number; sub?: string; hero?: boolean }) {
+interface TileProps {
+  label: string;
+  value: number;
+  range?: ScoreRange | null;
+  min: number;
+  max: number;
+  sub?: string;
+  hero?: boolean;
+}
+
+function ScoreTile({ label, value, range, min, max, sub, hero }: TileProps) {
   const fill = ((value - min) / (max - min)) * 100;
+  const isRange = range && range.lower !== range.upper;
   return (
     <div className={`tile${hero ? ' hero' : ''}`}>
       <div className="label">{label}</div>
-      <div className="value">{value}</div>
+      <div className={`value${isRange ? ' is-range' : ''}`}>{isRange ? `${range.lower}–${range.upper}` : value}</div>
       <div className="range">
         {min}–{max}
         {sub ? ` · ${sub}` : ''}
@@ -52,6 +64,11 @@ function ScoreTile({ label, value, min, max, sub, hero }: { label: string; value
       </div>
     </div>
   );
+}
+
+/** Subcategories worth listing: skip a lone unnamed one. */
+function namedSubcategories(c: CategoryResult) {
+  return c.subcategories.some((s) => s.name) ? c.subcategories : [];
 }
 
 function CategoryTable({ categories }: { categories: CategoryResult[] }) {
@@ -73,9 +90,13 @@ function CategoryTable({ categories }: { categories: CategoryResult[] }) {
             <Fragment key={c.name}>
               <tr>
                 <td>
-                  <button className="btn link" onClick={() => setOpen((o) => ({ ...o, [c.name]: !o[c.name] }))} aria-expanded={!!open[c.name]}>
-                    {open[c.name] ? '▾' : '▸'} {c.name}
-                  </button>
+                  {namedSubcategories(c).length ? (
+                    <button className="btn link" onClick={() => setOpen((o) => ({ ...o, [c.name]: !o[c.name] }))} aria-expanded={!!open[c.name]}>
+                      {open[c.name] ? '▾' : '▸'} {c.name}
+                    </button>
+                  ) : (
+                    c.name
+                  )}
                 </td>
                 <td className="r">
                   {c.tally.correct}/{c.tally.total}
@@ -86,11 +107,11 @@ function CategoryTable({ categories }: { categories: CategoryResult[] }) {
                 </td>
               </tr>
               {open[c.name] &&
-                [...c.subcategories]
+                [...namedSubcategories(c)]
                   .sort((a, b) => a.tally.accuracy - b.tally.accuracy)
                   .map((s) => (
                     <tr key={s.name} className="sub">
-                      <td>{s.name}</td>
+                      <td>{s.name || <span className="muted">Not specified</span>}</td>
                       <td className="r">
                         {s.tally.correct}/{s.tally.total}
                       </td>
@@ -108,13 +129,23 @@ function CategoryTable({ categories }: { categories: CategoryResult[] }) {
   );
 }
 
-function ScaleSection({ result, questions }: { result: ScaleResult; questions: QuestionResult[] }) {
+function questionTip(q: QuestionResult, showAnswers: boolean) {
+  const lines = [`#${q.question.number} · ${STATUS_LABEL[q.status]}`];
+  if (showAnswers) lines.push(`Your answer: ${q.response ?? '—'}`, `Correct: ${q.question.correct.join(' or ') || '—'}`);
+  if (q.question.category !== 'Uncategorized') lines.push(q.question.category);
+  if (q.question.subcategory) lines.push(q.question.subcategory);
+  return lines.join('\n');
+}
+
+function ScaleSection({ result, questions, showAnswers }: { result: ScaleResult; questions: QuestionResult[]; showAnswers: boolean }) {
+  const categorized = result.categories.some((c) => c.name !== 'Uncategorized');
+  const score = result.range && result.range.lower !== result.range.upper ? `${result.range.lower}–${result.range.upper}` : result.scaled;
   return (
     <section className="card">
       <div className="card-head">
         <h2>{result.scale.name}</h2>
         <span className="secondary num">
-          {result.scaled} · raw {result.raw}/{result.maxRaw} · {pct(result.tally.accuracy)}
+          {score} · raw {result.raw}/{result.maxRaw} · {pct(result.tally.accuracy)}
         </span>
         <span className="spacer" />
         <Legend />
@@ -136,7 +167,10 @@ function ScaleSection({ result, questions }: { result: ScaleResult; questions: Q
           <tbody>
             {result.sections.map(({ section, tally }) => (
               <tr key={section.id}>
-                <td>{section.name}</td>
+                <td>
+                  <span className="hide-sm">{section.name}</span>
+                  <span className="show-sm nowrap">{section.shortName}</span>
+                </td>
                 <td className="r">
                   {tally.correct}/{tally.total}
                 </td>
@@ -151,7 +185,7 @@ function ScaleSection({ result, questions }: { result: ScaleResult; questions: Q
                         <span
                           key={q.question.id}
                           className={`qcell sw-${q.status} ${q.status}`}
-                          data-tip={`#${q.question.number} · ${STATUS_LABEL[q.status]}\nYour answer: ${q.response ?? '—'}\nCorrect: ${q.question.correct.join(' or ')}\n${q.question.category}\n${q.question.subcategory}`}
+                          data-tip={questionTip(q, showAnswers)}
                           aria-label={`Question ${q.question.number} ${STATUS_LABEL[q.status]}`}
                         >
                           {q.question.number}
@@ -166,14 +200,22 @@ function ScaleSection({ result, questions }: { result: ScaleResult; questions: Q
       </div>
 
       <h3 style={{ marginBottom: 6 }}>By category (weakest first)</h3>
-      <CategoryTable categories={result.categories} />
+      {categorized ? (
+        <CategoryTable categories={result.categories} />
+      ) : (
+        <p className="muted small" style={{ margin: 0 }}>
+          This answer key has no question categories. Import a key with Category and Subcategory columns to see this breakdown.
+        </p>
+      )}
     </section>
   );
 }
 
 type Filter = 'all' | 'incorrect' | 'missed' | 'omitted';
 
-function QuestionTable({ report }: { report: GradeReport }) {
+function QuestionTable({ report, showAnswers }: { report: GradeReport; showAnswers: boolean }) {
+  const showSub = report.questions.some((q) => q.question.subcategory);
+  const columns = 4 + (showAnswers ? 2 : 0) + (showSub ? 1 : 0);
   const [filter, setFilter] = useState<Filter>('missed');
   const [category, setCategory] = useState('');
   const categories = useMemo(() => [...new Set(report.questions.map((q) => q.question.category))], [report]);
@@ -214,10 +256,10 @@ function QuestionTable({ report }: { report: GradeReport }) {
               <th>Section</th>
               <th className="r">#</th>
               <th>Result</th>
-              <th>Your answer</th>
-              <th>Correct</th>
+              {showAnswers && <th>Your answer</th>}
+              {showAnswers && <th>Correct</th>}
               <th>Category</th>
-              <th className="hide-sm">Subcategory</th>
+              {showSub && <th className="hide-sm">Subcategory</th>}
             </tr>
           </thead>
           <tbody>
@@ -231,18 +273,20 @@ function QuestionTable({ report }: { report: GradeReport }) {
                     {STATUS_LABEL[q.status]}
                   </span>
                 </td>
-                <td className="num">
-                  {q.response ?? <span className="muted">—</span>}
-                  {q.invalid && <span className="tag" title="Not a valid answer for this question"> invalid</span>}
-                </td>
-                <td className="num">{q.question.correct.join(' or ')}</td>
+                {showAnswers && (
+                  <td className="num">
+                    {q.response ?? <span className="muted">—</span>}
+                    {q.invalid && <span className="tag" title="Not a valid answer for this question"> invalid</span>}
+                  </td>
+                )}
+                {showAnswers && <td className="num">{q.question.correct.join(' or ') || <span className="muted">—</span>}</td>}
                 <td>{q.question.category}</td>
-                <td className="hide-sm secondary">{q.question.subcategory}</td>
+                {showSub && <td className="hide-sm secondary">{q.question.subcategory}</td>}
               </tr>
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={7} className="muted">
+                <td colSpan={columns} className="muted">
                   Nothing to show for this filter.
                 </td>
               </tr>
@@ -263,8 +307,14 @@ function exportCsv(report: GradeReport) {
 }
 
 export function ScoreReport({ report, studentName, onBack }: { report: GradeReport; studentName: string; onBack: () => void }) {
-  const estimated = report.scales.some((s) => s.scale.estimated);
   const [primary, ...otherComposites] = report.composites;
+  const { key, format } = report.exam;
+  const showAnswers = report.questions.some((q) => q.question.correct.length > 0 || q.response);
+  const notes = [
+    format.scoreNote ?? (report.scales.some((s) => s.scale.estimated) ? 'Scaled scores are estimates; official conversions vary by test form.' : ''),
+    key.resultsOnly ? 'Graded from the results pasted from Bluebook.' : '',
+    key.isDemo ? 'This report uses a placeholder demo answer key.' : '',
+  ].filter(Boolean);
 
   return (
     <div>
@@ -295,28 +345,27 @@ export function ScoreReport({ report, studentName, onBack }: { report: GradeRepo
         </div>
 
         <div className="tiles">
-          {primary && <ScoreTile hero label={primary.composite.name} value={primary.value} min={primary.composite.min} max={primary.composite.max} />}
+          {primary && <ScoreTile hero label={primary.composite.name} value={primary.value} range={primary.range} min={primary.composite.min} max={primary.composite.max} />}
           {report.scales.map((s) => (
-            <ScoreTile key={s.scale.id} label={s.scale.name} value={s.scaled} min={s.scale.min} max={s.scale.max} sub={`raw ${s.raw}/${s.maxRaw}`} />
+            <ScoreTile key={s.scale.id} label={s.scale.name} value={s.scaled} range={s.range} min={s.scale.min} max={s.scale.max} sub={`raw ${s.raw}/${s.maxRaw}`} />
           ))}
           {otherComposites.map((c) => (
-            <ScoreTile key={c.composite.id} label={c.composite.name} value={c.value} min={c.composite.min} max={c.composite.max} />
+            <ScoreTile key={c.composite.id} label={c.composite.name} value={c.value} range={c.range} min={c.composite.min} max={c.composite.max} />
           ))}
         </div>
 
-        {(estimated || report.exam.key.isDemo) && (
+        {notes.length > 0 && (
           <p className="muted small" style={{ marginBottom: 0 }}>
-            {estimated && 'Scaled scores are estimates from a typical raw-to-scaled curve; official conversions vary by test form. '}
-            {report.exam.key.isDemo && 'This report uses a placeholder demo answer key.'}
+            {notes.join(' ')}
           </p>
         )}
       </section>
 
       {report.scales.map((s) => (
-        <ScaleSection key={s.scale.id} result={s} questions={report.questions} />
+        <ScaleSection key={s.scale.id} result={s} questions={report.questions} showAnswers={showAnswers} />
       ))}
 
-      <QuestionTable report={report} />
+      <QuestionTable report={report} showAnswers={showAnswers} />
     </div>
   );
 }

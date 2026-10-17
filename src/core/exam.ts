@@ -34,7 +34,9 @@ export function buildExam(format: ExamFormat, key: AnswerKey): Exam {
       const correct = entry.correct.map((c) => c.trim()).filter(Boolean);
       const upper = correct.map((c) => c.toUpperCase());
       let type: QuestionType;
-      if (correct.length > 0 && upper.every((c) => choices.includes(c))) {
+      if (correct.length === 0 && key.resultsOnly) {
+        type = 'mc'; // answer unknown; outcome comes pre-graded
+      } else if (correct.length > 0 && upper.every((c) => choices.includes(c))) {
         type = 'mc';
       } else if (sf.allowsSpr && correct.length > 0 && correct.every((c) => parseRational(c))) {
         type = 'spr';
@@ -50,7 +52,7 @@ export function buildExam(format: ExamFormat, key: AnswerKey): Exam {
         choices: type === 'mc' ? choices : [],
         correct: type === 'mc' ? upper : correct,
         category: entry.category.trim() || 'Uncategorized',
-        subcategory: entry.subcategory.trim() || 'General',
+        subcategory: entry.subcategory.trim(),
       });
     }
     return { ...rest, questions };

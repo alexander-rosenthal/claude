@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import type { Exam, Responses } from '../core/types';
 import type { ParseResult } from '../parsers/collector';
 import { readRowsFromFile } from '../parsers/files';
+import { bluebookTargetExam, examForBluebookResults, looksLikeBluebook, parseBluebook } from '../parsers/bluebook';
 import { parsePastedResponses, responsesFromRows } from '../parsers/responses';
 
 interface Props {
@@ -11,11 +12,18 @@ interface Props {
 
 export function ParseNotice({ result }: { result: ParseResult | null }) {
   if (!result) return null;
+  const isResults = Boolean(result.outcomes);
   return (
     <>
       <div className={`notice ${result.answered ? 'ok' : 'error'}`}>
-        Read {result.answered} answer{result.answered === 1 ? '' : 's'}.
-        {result.answered > 0 && ' They are now on the bubble sheet, where you can review and edit them.'}
+        {isResults ? (
+          <>Read Bluebook results for {result.answered} question{result.answered === 1 ? '' : 's'}.</>
+        ) : (
+          <>
+            Read {result.answered} answer{result.answered === 1 ? '' : 's'}.
+            {result.answered > 0 && ' They are now on the bubble sheet, where you can review and edit them.'}
+          </>
+        )}
       </div>
       {result.warnings.length > 0 && (
         <div className="notice">
@@ -32,12 +40,33 @@ export function ParseNotice({ result }: { result: ParseResult | null }) {
   );
 }
 
-export function PastePanel({ exam, onLoad }: Props) {
+interface PasteProps extends Props {
+  /** A pasted Bluebook results table: already graded, ready for a report. */
+  onResults: (exam: Exam, result: ParseResult) => void;
+}
+
+export function PastePanel({ exam, onLoad, onResults }: PasteProps) {
   const [text, setText] = useState('');
   const [result, setResult] = useState<ParseResult | null>(null);
+  const [pending, setPending] = useState<{ exam: Exam; result: ParseResult } | null>(null);
   const isSat = exam.family === 'SAT';
 
   const load = () => {
+    setPending(null);
+    if (isSat && looksLikeBluebook(text)) {
+      const target = bluebookTargetExam(exam);
+      const r = parseBluebook(target, text);
+      setResult(r);
+      if (r.outcomes) {
+        const gradeWith = examForBluebookResults(target, r);
+        // Go straight to the report unless there's something to read first.
+        if (r.warnings.length) setPending({ exam: gradeWith, result: r });
+        else onResults(gradeWith, r);
+        return;
+      }
+      if (target === exam && r.answered) onLoad(r.responses);
+      return;
+    }
     const r = parsePastedResponses(exam, text);
     setResult(r);
     if (r.answered) onLoad(r.responses);
@@ -46,9 +75,14 @@ export function PastePanel({ exam, onLoad }: Props) {
   return (
     <div>
       <p className="secondary" style={{ marginTop: 0 }}>
-        {isSat
-          ? 'Paste the question table from your Bluebook / My Practice score details, or any list of answers.'
-          : 'Paste a list of answers.'}{' '}
+        {isSat ? (
+          <>
+            Paste the question table from a Bluebook practice test’s score details (select the whole table and copy it). It’s
+            graded from Bluebook’s own results, so no answer key is needed. Or paste any list of answers.
+          </>
+        ) : (
+          'Paste a list of answers.'
+        )}{' '}
         Accepted formats, mixed freely:
       </p>
       <ul className="secondary small" style={{ marginTop: 0 }}>
@@ -76,6 +110,11 @@ export function PastePanel({ exam, onLoad }: Props) {
         <span className="muted small">Replaces the answers currently on the sheet.</span>
       </div>
       <ParseNotice result={result} />
+      {pending && (
+        <button className="btn primary" onClick={() => onResults(pending.exam, pending.result)}>
+          View score report →
+        </button>
+      )}
     </div>
   );
 }
