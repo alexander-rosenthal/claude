@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react';
-import { applyScores, mergePoints, pointsFromReport, samePoint, type CalibrationPoint } from '../core/calibration';
+import { estimateReport, leaveOneOut, mergePoints, pointsFromReport, sameResult, samePoint, scoreCheckReady, type CalibrationPoint } from '../core/calibration';
 import { grade, type GradeReport } from '../core/grader';
 import { ROUTE_METHOD_LABEL, routeByAnswers, routedSections, type ModuleChoice } from '../core/routing';
 import type { AnswerKey, Exam, Responses } from '../core/types';
 import { BUILTIN_EXAMS, examFromKey, loadSavedKeys, saveKeys } from '../exams';
-import { BUILTIN_CALIBRATION, allPoints, loadSavedPoints, savePoints } from '../exams/calibration';
+import { BUILTIN_CALIBRATION, allPoints, loadSavedPoints, savePoints, scaleForPoint } from '../exams/calibration';
+import type { ParseResult } from '../parsers/collector';
+import type { BluebookGrading } from '../parsers/bluebook';
 import { BubbleSheet } from './BubbleSheet';
-import { ActualScoreInputs, CalibrationSummary, parseActualScores } from './Calibration';
+import { ActualScoreInputs, CalibrationSummary, checkOfficialScores } from './Calibration';
 import { PastePanel, UploadPanel } from './ImportPanels';
 import { KeyImport } from './KeyImport';
 import { ScoreReport } from './ScoreReport';
@@ -39,24 +41,47 @@ export function App() {
   const [report, setReport] = useState<GradeReport | null>(null);
   const [actualInput, setActualInput] = useState<Record<string, string>>({});
   const [savedPoints, setSavedPoints] = useState<CalibrationPoint[]>(loadSavedPoints);
+  const [confirmed, setConfirmed] = useState(false);
+  // Bluebook results pasted under "Paste": already graded, waiting for official scores.
+  const [pasted, setPasted] = useState<{ grading: BluebookGrading; result: ParseResult } | null>(null);
 
   const updatePoints = (points: CalibrationPoint[]) => {
     setSavedPoints(points);
     savePoints(points);
   };
 
+  // What would be graded now: pasted Bluebook results, or the answers on the sheet.
+  const graded = useMemo<GradeReport>(
+    () =>
+      pasted
+        ? { ...grade(pasted.grading.exam, pasted.result.responses, pasted.result.outcomes), notes: pasted.grading.notes, routing: pasted.grading.routing }
+        : { ...grade(exam, responses), routing: routed.decisions },
+    [pasted, exam, responses, routed],
+  );
+  const pool = useMemo(() => allPoints(savedPoints), [savedPoints]);
+  const accuracy = useMemo(() => leaveOneOut(pool, scaleForPoint), [pool]);
+  // Official scores are required and checked only once the model is accurate enough (SCORE_CHECK).
+  const enforced = scoreCheckReady(accuracy);
+  // The model's estimates, used only to flag a mistyped official score (never shown before grading).
+  const estimates = useMemo(() => Object.fromEntries(estimateReport(graded, pool).scales.map((s) => [s.scale.id, s.estimate])), [graded, pool]);
+  const check = checkOfficialScores(graded.exam, actualInput, estimates, confirmed, enforced);
+
   /**
-   * Show a graded report with calibrated estimates and any official scores
-   * entered, saving those scores as calibration points. The report's own
-   * points are left out of its estimate, so the estimate stays honest.
+   * Grade with the official scores, and save them to train the model. A
+   * re-grade of the same result replaces its earlier point (e.g. a corrected
+   * typo), and the report's estimate never uses its own score.
    */
-  const showReport = (graded: GradeReport) => {
-    const { scores } = parseActualScores(graded.exam, actualInput);
-    const own = pointsFromReport(applyScores(graded, [], scores));
-    const pool = allPoints(savedPoints).filter((p) => !own.some((o) => samePoint(o, p)));
-    setReport(applyScores(graded, pool, scores));
-    const added = own.filter((p) => !BUILTIN_CALIBRATION.some((b) => samePoint(b, p)));
-    if (added.length) updatePoints(mergePoints(savedPoints, added));
+  const gradeTest = () => {
+    if (!check.ok) return;
+    const scored = estimateReport(graded, pool, check.scores);
+    setReport(scored);
+    const added = pointsFromReport(scored).filter((p) => !BUILTIN_CALIBRATION.some((b) => samePoint(b, p)));
+    if (added.length) updatePoints(mergePoints(savedPoints.filter((p) => !added.some((a) => sameResult(a, p))), added));
+  };
+
+  const loadResponses = (next: Responses) => {
+    setPasted(null);
+    setResponses(next);
   };
 
   const answered = exam.sections.reduce((n, s) => n + s.questions.filter((q) => responses[q.id]).length, 0);
@@ -67,8 +92,10 @@ export function App() {
     if (answered && !confirm('Switching tests clears the answers entered so far. Continue?')) return;
     setExamId(id);
     setResponses({});
+    setPasted(null);
     setModuleChoices({});
     setActualInput({});
+    setConfirmed(false);
   };
 
   const importKey = (key: AnswerKey) => {
@@ -77,6 +104,7 @@ export function App() {
     saveKeys(next);
     setExamId(examFromKey(key).id);
     setResponses({});
+    setPasted(null);
     setModuleChoices({});
     setTab('sheet');
   };
@@ -88,6 +116,7 @@ export function App() {
     saveKeys(next);
     setExamId(BUILTIN_EXAMS[0].id);
     setResponses({});
+    setPasted(null);
     setModuleChoices({});
   };
 
@@ -157,8 +186,8 @@ export function App() {
             })}
           </div>
         )}
-        <ActualScoreInputs exam={exam} values={actualInput} onChange={setActualInput} />
-        <CalibrationSummary saved={savedPoints} onChange={updatePoints} />
+        <ActualScoreInputs exam={graded.exam} values={actualInput} onChange={setActualInput} check={check} confirmed={confirmed} onConfirm={setConfirmed} enforced={enforced} />
+        <CalibrationSummary saved={savedPoints} accuracy={accuracy} onChange={updatePoints} />
         {exam.key.isDemo && (
           <p className="muted small" style={{ marginBottom: 0 }}>
             This test uses a placeholder answer key for trying out the grader. Import a real key under “Answer key”.
@@ -189,33 +218,61 @@ export function App() {
         </div>
 
         {tab === 'sheet' && (
-          <BubbleSheet key={exam.id} exam={exam} responses={responses} onChange={(id, v) => setResponses((r) => ({ ...r, [id]: v }))} />
+          <BubbleSheet
+            key={exam.id}
+            exam={exam}
+            responses={responses}
+            onChange={(id, v) => {
+              setPasted(null);
+              setResponses((r) => ({ ...r, [id]: v }));
+            }}
+          />
         )}
         {tab === 'paste' && (
           <PastePanel
             exam={exam}
-            onLoad={setResponses}
-            onResults={(g, r) => showReport({ ...grade(g.exam, r.responses, r.outcomes), notes: g.notes, routing: g.routing })}
+            onLoad={loadResponses}
+            onResults={(g, r) => setPasted({ grading: g, result: r })}
           />
         )}
-        {tab === 'upload' && <UploadPanel exam={exam} onLoad={setResponses} />}
+        {tab === 'upload' && <UploadPanel exam={exam} onLoad={loadResponses} />}
         {tab === 'key' && <KeyImport onImported={importKey} />}
       </section>
 
       <div className="row card" style={{ position: 'sticky', bottom: 8 }}>
-        <span className="num">
-          <b>{answered}</b>
-          <span className="muted">/{total} answered</span>
-        </span>
+        {pasted ? (
+          <span className="small">
+            <b>Bluebook results</b> <span className="muted">· {Object.keys(pasted.result.outcomes ?? {}).length} questions</span>{' '}
+            <button className="btn link small" onClick={() => setPasted(null)}>
+              Discard
+            </button>
+          </span>
+        ) : (
+          <span className="num">
+            <b>{answered}</b>
+            <span className="muted">/{total} answered</span>
+          </span>
+        )}
         <span style={{ flex: 1 }} />
-        <button className="btn" disabled={!answered} onClick={() => {
+        {!check.ok && (
+          <span className="muted small">
+            {check.errors.find((e) => e.startsWith('Enter the official')) ? 'Enter the official scores to grade.' : check.errors.length ? 'Fix the official scores to grade.' : 'Confirm the official scores to grade.'}
+          </span>
+        )}
+        <button
+          className="btn"
+          disabled={!answered && !pasted}
+          onClick={() => {
             if (!confirm('Clear all answers and official scores?')) return;
             setResponses({});
+            setPasted(null);
             setActualInput({});
-          }}>
+            setConfirmed(false);
+          }}
+        >
           Clear
         </button>
-        <button className="btn primary" onClick={() => showReport({ ...grade(exam, responses), routing: routed.decisions })}>
+        <button className="btn primary" disabled={!check.ok} onClick={gradeTest}>
           Grade test
         </button>
       </div>

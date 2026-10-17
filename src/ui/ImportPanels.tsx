@@ -50,20 +50,18 @@ export function ParseNotice({ result }: { result: ParseResult | null }) {
 }
 
 interface PasteProps extends Props {
-  /** A pasted Bluebook results table: already graded, ready for a report. */
+  /** A pasted Bluebook results table: already graded, graded for the report once official scores are entered. */
   onResults: (grading: BluebookGrading, result: ParseResult) => void;
 }
 
 export function PastePanel({ exam, onLoad, onResults }: PasteProps) {
   const [text, setText] = useState('');
   const [result, setResult] = useState<ParseResult | null>(null);
-  const [pending, setPending] = useState<{ grading: BluebookGrading; result: ParseResult } | null>(null);
   const [moduleChoices, setModuleChoices] = useState<Record<string, PasteModuleChoice>>({});
   const isSat = exam.family === 'SAT';
   const adaptive = hasUsableDigitalKey(exam) ? exam.sections.filter((s) => s.adaptive) : [];
 
   const load = () => {
-    setPending(null);
     if (isSat && looksLikeBluebook(text)) {
       const target = bluebookTargetExam(exam);
       const parsed = parseBluebook(target, text);
@@ -71,9 +69,7 @@ export function PastePanel({ exam, onLoad, onResults }: PasteProps) {
         const grading = examForBluebookResults(target, parsed, moduleChoices);
         const r = { ...parsed, warnings: [...parsed.warnings, ...grading.warnings] };
         setResult(r);
-        // Go straight to the report unless there's something to read first.
-        if (r.warnings.length) setPending({ grading, result: r });
-        else onResults(grading, r);
+        onResults(grading, r);
         return;
       }
       const r = parsed;
@@ -147,11 +143,6 @@ export function PastePanel({ exam, onLoad, onResults }: PasteProps) {
         <span className="muted small">Replaces the answers currently on the sheet.</span>
       </div>
       <ParseNotice result={result} />
-      {pending && (
-        <button className="btn primary" onClick={() => onResults(pending.grading, pending.result)}>
-          View score report →
-        </button>
-      )}
     </div>
   );
 }

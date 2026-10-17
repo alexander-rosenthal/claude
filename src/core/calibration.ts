@@ -145,6 +145,20 @@ export function pointsFromReport(report: GradeReport): CalibrationPoint[] {
   });
 }
 
+/** Two points come from the same graded result, whatever official score was entered. */
+export function sameResult(a: CalibrationPoint, b: CalibrationPoint): boolean {
+  return samePoint({ ...a, actual: 0 }, { ...b, actual: 0 });
+}
+
+/**
+ * The report's estimates, calibrated from every point except those from this
+ * same result, so a re-graded test is never predicted from its own score.
+ */
+export function estimateReport(report: GradeReport, points: CalibrationPoint[], actual: Record<string, number | undefined> = {}): GradeReport {
+  const own = pointsFromReport(applyScores(report, [], Object.fromEntries(report.scales.map((s) => [s.scale.id, 0]))));
+  return applyScores(report, points.filter((p) => !own.some((o) => sameResult(o, p))), actual);
+}
+
 /** Two points describe the same result (a re-grade), so only one is kept. */
 export function samePoint(a: CalibrationPoint, b: CalibrationPoint): boolean {
   return (
@@ -169,6 +183,20 @@ export interface CalibrationAccuracy {
   uncalibrated: number;
   /** Mean absolute error when each point is predicted from all the others. */
   calibrated: number;
+  /** Share of points predicted more than SCORE_CHECK.toleranceSteps away (±20 on the SAT). */
+  beyondTolerance: number;
+}
+
+/**
+ * When the model is good enough to check official scores: once no more than
+ * `maxShareBeyond` of its leave-one-out predictions miss by more than
+ * `toleranceSteps` score steps (±20 on the SAT), official scores become
+ * required and a score that far from the estimate needs a confirmation.
+ */
+export const SCORE_CHECK = { toleranceSteps: 2, maxShareBeyond: 0.03 };
+
+export function scoreCheckReady(accuracy: CalibrationAccuracy): boolean {
+  return accuracy.n > 0 && accuracy.beyondTolerance <= SCORE_CHECK.maxShareBeyond;
 }
 
 /** Leave-one-out check: predict each point from the rest and compare with its actual score. */
@@ -176,6 +204,7 @@ export function leaveOneOut(points: CalibrationPoint[], scaleFor: (p: Calibratio
   let n = 0;
   let uncalibrated = 0;
   let calibrated = 0;
+  let beyond = 0;
   points.forEach((p, i) => {
     const scale = scaleFor(p);
     if (!scale) return;
@@ -184,6 +213,7 @@ export function leaveOneOut(points: CalibrationPoint[], scaleFor: (p: Calibratio
     n++;
     uncalibrated += Math.abs(roundScaled(scale, scaledCurve(scale, p.raw)) - p.actual);
     calibrated += Math.abs(predicted - p.actual);
+    if (Math.abs(predicted - p.actual) > SCORE_CHECK.toleranceSteps * scale.step) beyond++;
   });
-  return { n, uncalibrated: n ? uncalibrated / n : 0, calibrated: n ? calibrated / n : 0 };
+  return { n, uncalibrated: n ? uncalibrated / n : 0, calibrated: n ? calibrated / n : 0, beyondTolerance: n ? beyond / n : 0 };
 }

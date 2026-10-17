@@ -46,8 +46,11 @@ Bubble sheet / Paste / Upload ─► AnswerCollector ─► Responses ─┘
   
   The bubble sheet and Paste tabs offer a manual override: auto, harder, easier, and (on Paste only) domains only.
 - **`src/core/calibration.ts`**: calibrating estimated scores against official ones.
-  - Enter a student's official section scores (e.g. from Bluebook) before grading. The report then shows the official score with our estimate beside it.
-  - Each such score is saved in the browser as a calibration point. A point records the test, scale, Module 2 version, raw score, official score and the questions missed, with no names.
+  - Official section scores (e.g. from Bluebook) can be entered before grading. A typed score must be 200–800 and end in 0, so the total is 400–1600. The report shows the official score with the estimate beside it.
+  - Official scores become required once the model is accurate enough (`SCORE_CHECK` in `src/core/calibration.ts`): no more than 3% of leave-one-out estimates may be off by more than 20 points. Today it's 13%. From then on, a score more than 20 from the estimate needs a ticked confirmation, which catches typos without rejecting real results. The estimate isn't shown before grading, so it can't be copied into the field. Demo keys and tests with official conversion tables are always exempt.
+  - Pasted Bluebook results wait on the Grade button like any other input, so official scores can be entered first.
+  - Each graded score is saved in the browser as a calibration point and used for the very next estimate, so the model adapts with every test. Re-grading the same result replaces its point, which keeps corrected typos out. Sharing points between browsers or users takes Export/Import for now; a shared, always-current model needs a server.
+  - A point records the test, scale, Module 2 version, raw score, official score and the questions missed, with no names.
   - Estimates are the conversion curve plus two corrections:
     - one pooled across all tests with the same Module 2 version;
     - one for the test itself.

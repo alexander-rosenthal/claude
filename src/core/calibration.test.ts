@@ -7,7 +7,7 @@ import harderSample from '../parsers/fixtures/pt4-bluebook-sample-harder.json';
 import easierSample from '../parsers/fixtures/pt4-bluebook-sample-easier.json';
 import pt4Results from '../parsers/fixtures/bluebook-pt4-results.txt?raw';
 import { examForBluebookResults, parseBluebook } from '../parsers/bluebook';
-import { applyScores, calibratedCurve, leaveOneOut, mergePoints, pointsFromReport, samePoint, type CalibrationPoint } from './calibration';
+import { applyScores, calibratedCurve, estimateReport, leaveOneOut, mergePoints, pointsFromReport, samePoint, type CalibrationPoint } from './calibration';
 import { grade, type GradeReport } from './grader';
 import { routeByAnswers } from './routing';
 import { toScaled } from './scoring';
@@ -87,6 +87,13 @@ describe('applyScores', () => {
     expect(report.scales[0].calibration).toEqual({ pooled: 2, test: 2 });
     expect(report.scales[1].calibration).toBeNull(); // no Math points
     expect(report.composites[0].value).toBe(report.scales[0].estimate + report.scales[1].estimate);
+  });
+
+  it('never estimates a result from its own saved score, whatever score was saved', () => {
+    const report = sampleReport(harderSample);
+    const own = pointsFromReport(applyScores(report, [], { rw: 800, math: 200 }));
+    const withOwn = estimateReport(report, own);
+    expect(withOwn.scales.map((s) => s.estimate)).toEqual(applyScores(report, []).scales.map((s) => s.estimate));
   });
 
   it('leaves official conversion tables alone', () => {
