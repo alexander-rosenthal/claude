@@ -27,7 +27,8 @@
  */
 import { isBlank, normalizeChoice, parseRational, sprMatches } from '../core/answers';
 import { buildExam } from '../core/exam';
-import type { AnswerKey, Exam, Outcomes, QuestionStatus, Topic } from '../core/types';
+import { MODULE_2_CUTOFFS, routeByDomains, routedSections, type ModuleChoice, type RouteDecision } from '../core/routing';
+import type { AnswerKey, Exam, Outcomes, QuestionStatus, Section, Topic } from '../core/types';
 import { SAT_FORMAT } from '../exams/formats';
 import { SAT_MATH_TAXONOMY, SAT_RW_TAXONOMY } from '../exams/taxonomy';
 import { AnswerCollector, type ParseResult } from './collector';
@@ -298,62 +299,96 @@ export interface BluebookGrading {
   warnings: string[];
   /** Shown on the report. */
   notes: string[];
+  /** How each adaptive Module 2 was handled. */
+  routing: RouteDecision[];
 }
 
-/** Pasted domains that disagree with the key's this often suggest another Module 2. */
-const MODULE_MISMATCH_RATIO = 0.25;
+/**
+ * For an adaptive module: route automatically, force a version, use the
+ * pasted domains only, or ('key') use the single version a key without
+ * routing data holds.
+ */
+export type PasteModuleChoice = ModuleChoice | 'key';
+
+/** Choices offered for an adaptive section of the selected exam. */
+export function moduleChoicesFor(exam: Exam, sectionId: string): { value: PasteModuleChoice; label: string }[] {
+  if (routedSections(exam).some((s) => s.id === sectionId)) {
+    return [
+      { value: 'auto', label: 'Auto (cutoff, checked by domains)' },
+      ...exam.key.versions![sectionId].map((v) => ({ value: v.id as PasteModuleChoice, label: v.name })),
+      { value: 'none', label: 'Domains only' },
+    ];
+  }
+  return [
+    { value: 'none', label: 'Domains only' },
+    { value: 'key', label: 'This key’s Module 2' },
+  ];
+}
 
 /**
  * The exam to grade a Bluebook results paste with.
  *
  * With a real digital key selected, the paste is graded with Bluebook's
  * outcomes while the key adds correct answers and skill tags. Module 1 is the
- * same for every student, so it always uses the key. Module 2 is adaptive:
- * the key's version is used only when `sameAdaptiveModules` says the student
- * saw it. Without such a key, the exam is built from the paste alone.
+ * same for every student, so it always uses the key. Module 2 is adaptive: a
+ * key holding both versions is routed (Module 1 cutoff, checked against the
+ * pasted domains; see core/routing); a key with one version is used only when
+ * chosen. Without such a key, the exam is built from the paste alone.
  */
-export function examForBluebookResults(target: Exam, result: ParseResult, sameAdaptiveModules = false): BluebookGrading {
-  if (!hasUsableDigitalKey(target)) return { exam: resultsOnlyExam(result), warnings: [], notes: [] };
+export function examForBluebookResults(
+  target: Exam,
+  result: ParseResult,
+  choices: Record<string, PasteModuleChoice> = {},
+  cutoffs: Record<string, number> = MODULE_2_CUTOFFS,
+): BluebookGrading {
+  if (!hasUsableDigitalKey(target)) return { exam: resultsOnlyExam(result), warnings: [], notes: [], routing: [] };
 
   const warnings: string[] = [];
   const notes: string[] = [];
-  const entries = target.sections.flatMap((section) => {
-    const useKey = !section.adaptive || sameAdaptiveModules;
-    if (section.adaptive && sameAdaptiveModules) {
-      const compared = section.questions.filter((q) => result.categories?.[q.id] && q.category !== 'Uncategorized');
-      const differing = compared.filter((q) => normalizeLabel(q.category) !== normalizeLabel(result.categories![q.id]));
-      if (compared.length && differing.length / compared.length > MODULE_MISMATCH_RATIO) {
-        warnings.push(
-          `${section.name}: the pasted domains differ from the key on ${differing.length} of ${compared.length} questions, so the student probably saw a different Module 2 than the key covers.`,
-        );
-      }
+  const routing: RouteDecision[] = [];
+  const routed = new Set(routedSections(target).map((s) => s.id));
+
+  const sections = target.sections.map((section): Section | null => {
+    if (!section.adaptive) return section;
+    const choice = choices[section.id];
+    if (routed.has(section.id)) {
+      const route = routeByDomains(target, section, result.outcomes ?? {}, result.categories, (choice ?? 'auto') as ModuleChoice, cutoffs);
+      routing.push(route.decision);
+      if (route.warning) warnings.push(route.warning);
+      return route.section;
     }
-    return section.questions.map((q) => {
+    if (choice === 'key') {
+      notes.push(`${section.name}: using the selected key’s Module 2 as chosen.`);
+      return section;
+    }
+    notes.push(`${section.name} is adaptive; its skills come from Bluebook’s domains only.`);
+    return null;
+  });
+
+  const entries = target.sections.flatMap((base, i) => {
+    const section = sections[i];
+    return base.questions.map((q) => {
+      const keyQ = section?.questions[q.number - 1];
       const pastedCategory = result.categories?.[q.id];
-      const pastedTopics = result.topics?.[q.id] ?? [];
-      const keyHasTags = useKey && q.topics.length > 0;
+      const keyHasTags = Boolean(keyQ && keyQ.topics.length);
       return {
-        sectionId: section.id,
+        sectionId: base.id,
         number: q.number,
-        correct: useKey ? q.correct : [],
+        correct: keyQ ? keyQ.correct : [],
         // A tagged key keeps its own domain so its skill tree stays consistent.
-        category: keyHasTags ? q.category : (pastedCategory ?? (useKey && q.category !== 'Uncategorized' ? q.category : '')),
-        topics: keyHasTags ? q.topics : pastedTopics,
+        category: keyHasTags ? keyQ!.category : (pastedCategory ?? (keyQ && keyQ.category !== 'Uncategorized' ? keyQ.category : '')),
+        topics: keyHasTags ? keyQ!.topics : (result.topics?.[q.id] ?? []),
       };
     });
   });
 
-  if (!sameAdaptiveModules && target.sections.some((s) => s.adaptive)) {
-    notes.push(`Module 2 is adaptive, so its skills and correct answers from “${target.name}” are left out; only Bluebook’s domains are used for it.`);
-  }
-
   const key: AnswerKey = {
     id: `${target.key.id}+bluebook`,
     name: `${target.name} (Bluebook results)`,
-    formatId: SAT_FORMAT.id,
+    formatId: target.format.id,
     isDemo: false,
     resultsOnly: true,
     entries,
   };
-  return { exam: buildExam(SAT_FORMAT, key), warnings, notes };
+  return { exam: buildExam(target.format, key), warnings, notes, routing };
 }

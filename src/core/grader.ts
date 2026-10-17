@@ -1,5 +1,6 @@
 import { isCorrect, normalizeResponse } from './answers';
 import { computeComposite, computeCompositeRange, toScaled, toScaledRange, type ScoreRange } from './scoring';
+import type { RouteDecision } from './routing';
 import type { CompositeScore, Exam, Outcomes, Question, QuestionStatus, Responses, ScoreScale, Section } from './types';
 
 export type { QuestionStatus };
@@ -95,6 +96,8 @@ export interface GradeReport {
   overall: Tally;
   /** Context to show with the scores (e.g. how a pasted result was matched). */
   notes: string[];
+  /** Which adaptive Module 2 version was used for each section, and why. */
+  routing: RouteDecision[];
 }
 
 function tally(results: QuestionResult[]): Tally {
@@ -198,5 +201,5 @@ export function grade(exam: Exam, responses: Responses, outcomes: Outcomes = {})
     return value == null ? [] : [{ composite, value, range: computeCompositeRange(composite, rangesById) }];
   });
 
-  return { exam, gradedAt: new Date(), questions, scales, composites, overall: tally(questions), notes: [] };
+  return { exam, gradedAt: new Date(), questions, scales, composites, overall: tally(questions), notes: [], routing: [] };
 }

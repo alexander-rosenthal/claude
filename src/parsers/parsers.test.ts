@@ -133,25 +133,49 @@ describe('Bluebook paste', () => {
     describe('with the tagged Practice Test 4 key selected', () => {
       const pt4 = OFFICIAL_EXAMS.find((e) => e.key.id === 'sat-pt4-bluebook')!;
       const result = parseBluebook(pt4, pt4Results);
+      const q = (exam: typeof pt4, id: string) => exam.sections.flatMap((s) => s.questions).find((x) => x.id === id)!;
 
-      it('adds Module 1 skills and answers but leaves the adaptive Module 2 alone', () => {
-        const { exam, warnings, notes } = examForBluebookResults(pt4, result);
+      it('confirms the easier Math Module 2 by domains and infers the RW Module 2 from the cutoff', () => {
+        const { exam, warnings, routing } = examForBluebookResults(pt4, result);
         expect(warnings).toEqual([]);
-        expect(notes.join(' ')).toMatch(/Module 2 is adaptive/);
-        const q = (id: string) => exam.sections.flatMap((s) => s.questions).find((x) => x.id === id)!;
-        expect(q('rw1-1').topics).toEqual([{ skill: 'Vocabulary in Context', subskill: 'Sentence Completion' }]);
-        expect(q('rw1-1').correct).toEqual(['B']);
-        expect(q('rw2-1').topics).toEqual([]);
-        expect(q('rw2-1').correct).toEqual([]);
-        expect(q('rw2-1').category).toBe('Craft and Structure'); // from the paste
+        const [rw, math] = routing;
+        expect(rw).toMatchObject({ sectionId: 'rw2', version: 'easier', method: 'inferred', module1Missed: 23, cutoffGuess: 'easier' });
+        expect(rw.reason).toMatch(/fit both versions \(27 and 27 of 27\)/);
+        expect(math).toMatchObject({ sectionId: 'math2', version: 'easier', method: 'confirmed-by-domains', module1Missed: 13, cutoffGuess: 'easier' });
+        expect(math.reason).toMatch(/21 of 22 Bluebook domains match the easier version \(vs 8 for harder\)/);
+        // Module 1 always comes from the key.
+        expect(q(exam, 'rw1-1').topics).toEqual([{ skill: 'Vocabulary in Context', subskill: 'Sentence Completion' }]);
+        expect(q(exam, 'rw1-1').correct).toEqual(['B']);
+        // Easier Math Module 2 #3 is a grid-in with answer 2520.
+        expect(q(exam, 'math2-3').correct).toEqual(['2520']);
+        expect(q(exam, 'math2-12').topics).toEqual([{ skill: 'Probability', subskill: 'Probability and Conditional Probability' }]);
+        // RW Module 2 takes the easier version's tags.
+        expect(q(exam, 'rw2-1').correct).toEqual(['D']);
+        expect(q(exam, 'rw2-1').topics.length).toBeGreaterThan(0);
         const report = grade(exam, result.responses, result.outcomes);
         expect(report.scales.map((s) => s.raw)).toEqual([18, 15]);
       });
 
-      it('warns when the claimed Module 2 does not match the paste', () => {
-        const { warnings } = examForBluebookResults(pt4, result, true);
+      it('overrides the cutoff when the domains clearly fit the other version', () => {
+        // With a looser Math cutoff the guess is harder, but the domains say easier.
+        const { routing } = examForBluebookResults(pt4, result, {}, { rw: 7, math: 15 });
+        expect(routing[1]).toMatchObject({ version: 'easier', method: 'overridden-by-domains', cutoffGuess: 'harder' });
+      });
+
+      it('uses a chosen version, and warns when the paste contradicts it', () => {
+        const { exam, warnings, routing } = examForBluebookResults(pt4, result, { rw2: 'harder', math2: 'harder' });
+        expect(routing.map((d) => d.method)).toEqual(['manual', 'manual']);
+        expect(q(exam, 'math2-3').correct).not.toEqual(['2520']);
         expect(warnings).toHaveLength(1);
         expect(warnings[0]).toMatch(/Math — Module 2: .* 14 of 22/);
+      });
+
+      it('can use Bluebook’s domains only for Module 2', () => {
+        const { exam, routing } = examForBluebookResults(pt4, result, { rw2: 'none', math2: 'none' });
+        expect(routing.map((d) => [d.version, d.method])).toEqual([[null, 'domains-only'], [null, 'domains-only']]);
+        expect(q(exam, 'math2-3').correct).toEqual([]);
+        expect(q(exam, 'rw2-1').topics).toEqual([]);
+        expect(q(exam, 'rw2-1').category).toBe('Craft and Structure');
       });
     });
   });

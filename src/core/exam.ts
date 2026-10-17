@@ -1,5 +1,5 @@
 import { parseRational } from './answers';
-import type { AnswerKey, Exam, ExamFormat, Question, QuestionType, Section, Topic } from './types';
+import type { AnswerKey, Exam, ExamFormat, Question, QuestionType, Section, Topic, VersionChoice } from './types';
 import { questionId } from './types';
 
 /** Trim, drop empty and duplicate tags. */
@@ -28,9 +28,18 @@ export class AnswerKeyError extends Error {
  * answer that is one of the question's choices is multiple choice, a numeric
  * answer in a section that allows it is a student-produced response.
  */
-export function buildExam(format: ExamFormat, key: AnswerKey): Exam {
+export function buildExam(format: ExamFormat, key: AnswerKey, choice: VersionChoice = {}): Exam {
   const problems: string[] = [];
-  const entries = new Map(key.entries.map((e) => [questionId(e.sectionId, e.number), e]));
+
+  // Settle which version of each multi-version section to use.
+  const versions: VersionChoice = {};
+  for (const [sectionId, options] of Object.entries(key.versions ?? {})) {
+    const wanted = choice[sectionId] ?? options[0]?.id;
+    if (!options.some((v) => v.id === wanted)) problems.push(`Section "${sectionId}" has no version "${wanted}"`);
+    versions[sectionId] = wanted;
+  }
+  const inUse = key.entries.filter((e) => (key.versions?.[e.sectionId] ? e.version === versions[e.sectionId] : true));
+  const entries = new Map(inUse.map((e) => [questionId(e.sectionId, e.number), e]));
 
   const knownIds = new Set<string>();
   const sections: Section[] = format.sections.map((sf) => {
@@ -72,7 +81,7 @@ export function buildExam(format: ExamFormat, key: AnswerKey): Exam {
     return { ...rest, questions };
   });
 
-  for (const e of key.entries) {
+  for (const e of inUse) {
     if (!knownIds.has(questionId(e.sectionId, e.number))) {
       problems.push(`Key entry for section "${e.sectionId}" #${e.number} doesn't match any question in ${format.name}`);
     }
@@ -80,8 +89,16 @@ export function buildExam(format: ExamFormat, key: AnswerKey): Exam {
 
   if (problems.length) throw new AnswerKeyError(problems);
 
+  const versionLabel = Object.entries(versions)
+    .map(([sectionId, v]) => {
+      const section = format.sections.find((s) => s.id === sectionId);
+      const name = key.versions![sectionId].find((o) => o.id === v)?.name;
+      return `${section?.shortName ?? sectionId}: ${name}`;
+    })
+    .join(', ');
+
   return {
-    id: `${format.id}:${key.id}`,
+    id: [`${format.id}:${key.id}`, ...Object.entries(versions).map(([s, v]) => `${s}=${v}`)].join(':'),
     name: key.name,
     family: format.family,
     format,
@@ -89,5 +106,16 @@ export function buildExam(format: ExamFormat, key: AnswerKey): Exam {
     sections,
     scales: format.scales,
     composites: format.composites,
+    versions,
+    ...(versionLabel ? { versionLabel } : {}),
   };
+}
+
+/** Build every version combination, so a key with versions is checked in full. */
+export function buildAllVersions(format: ExamFormat, key: AnswerKey): Exam[] {
+  let choices: VersionChoice[] = [{}];
+  for (const [sectionId, options] of Object.entries(key.versions ?? {})) {
+    choices = choices.flatMap((c) => options.map((o) => ({ ...c, [sectionId]: o.id })));
+  }
+  return choices.map((c) => buildExam(format, key, c));
 }

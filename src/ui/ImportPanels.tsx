@@ -7,6 +7,8 @@ import {
   examForBluebookResults,
   hasUsableDigitalKey,
   looksLikeBluebook,
+  moduleChoicesFor,
+  type PasteModuleChoice,
   parseBluebook,
   type BluebookGrading,
 } from '../parsers/bluebook';
@@ -56,9 +58,9 @@ export function PastePanel({ exam, onLoad, onResults }: PasteProps) {
   const [text, setText] = useState('');
   const [result, setResult] = useState<ParseResult | null>(null);
   const [pending, setPending] = useState<{ grading: BluebookGrading; result: ParseResult } | null>(null);
-  const [sameModule2, setSameModule2] = useState(false);
+  const [moduleChoices, setModuleChoices] = useState<Record<string, PasteModuleChoice>>({});
   const isSat = exam.family === 'SAT';
-  const keyCanEnrich = hasUsableDigitalKey(exam);
+  const adaptive = hasUsableDigitalKey(exam) ? exam.sections.filter((s) => s.adaptive) : [];
 
   const load = () => {
     setPending(null);
@@ -66,7 +68,7 @@ export function PastePanel({ exam, onLoad, onResults }: PasteProps) {
       const target = bluebookTargetExam(exam);
       const parsed = parseBluebook(target, text);
       if (parsed.outcomes) {
-        const grading = examForBluebookResults(target, parsed, sameModule2);
+        const grading = examForBluebookResults(target, parsed, moduleChoices);
         const r = { ...parsed, warnings: [...parsed.warnings, ...grading.warnings] };
         setResult(r);
         // Go straight to the report unless there's something to read first.
@@ -115,11 +117,28 @@ export function PastePanel({ exam, onLoad, onResults }: PasteProps) {
         <li>Rows copied from a spreadsheet (Section, Question, Answer)</li>
       </ul>
       <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder={`${exam.sections[0].name}\n1 A\n2 C\n…`} />
-      {keyCanEnrich && (
-        <label className="row small secondary" style={{ marginTop: 8, gap: 6 }}>
-          <input type="checkbox" checked={sameModule2} onChange={(e) => setSameModule2(e.target.checked)} />
-          For a Bluebook paste: the student got the same adaptive Module 2 as “{exam.name}” (use its Module 2 skills and answers)
-        </label>
+      {adaptive.length > 0 && (
+        <div className="row small secondary" style={{ marginTop: 8 }}>
+          <span>For a Bluebook results paste, Module 2:</span>
+          {adaptive.map((section) => {
+            const options = moduleChoicesFor(exam, section.id);
+            return (
+              <label key={section.id} className="row" style={{ gap: 4 }}>
+                {section.shortName}
+                <select
+                  value={moduleChoices[section.id] ?? options[0].value}
+                  onChange={(e) => setModuleChoices((c) => ({ ...c, [section.id]: e.target.value as PasteModuleChoice }))}
+                >
+                  {options.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            );
+          })}
+        </div>
       )}
       <div className="row" style={{ marginTop: 8 }}>
         <button className="btn primary" disabled={!text.trim()} onClick={load}>

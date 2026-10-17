@@ -525,6 +525,11 @@ table.data tr.sub td:first-child {
 .report-meta {
   text-align: right;
 }
+.routing {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  color: var(--ink-2);
+}
 
 .qstrip {
   display: flex;

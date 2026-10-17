@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { grade, type GradeReport } from '../core/grader';
+import { ROUTE_METHOD_LABEL, routeByAnswers, routedSections, type ModuleChoice } from '../core/routing';
 import type { AnswerKey, Exam, Responses } from '../core/types';
 import { BUILTIN_EXAMS, examFromKey, loadSavedKeys, saveKeys } from '../exams';
 import { BubbleSheet } from './BubbleSheet';
@@ -23,9 +24,13 @@ export function App() {
   const [savedKeys, setSavedKeys] = useState<AnswerKey[]>(loadSavedKeys);
   const exams = useMemo(() => [...safeExams(savedKeys), ...BUILTIN_EXAMS], [savedKeys]);
   const [examId, setExamId] = useState(exams[0].id);
-  const exam = exams.find((e) => e.id === examId) ?? exams[0];
+  const baseExam = exams.find((e) => e.id === examId) ?? exams[0];
 
   const [responses, setResponses] = useState<Responses>({});
+  // Adaptive Module 2: routed from Module 1 and checked against the answers, unless overridden.
+  const [moduleChoices, setModuleChoices] = useState<Record<string, ModuleChoice>>({});
+  const routed = useMemo(() => routeByAnswers(baseExam, responses, moduleChoices), [baseExam, responses, moduleChoices]);
+  const exam = routed.exam;
   const [tab, setTab] = useState<Tab>('sheet');
   const [studentName, setStudentName] = useState('');
   const [report, setReport] = useState<GradeReport | null>(null);
@@ -38,6 +43,7 @@ export function App() {
     if (answered && !confirm('Switching tests clears the answers entered so far. Continue?')) return;
     setExamId(id);
     setResponses({});
+    setModuleChoices({});
   };
 
   const importKey = (key: AnswerKey) => {
@@ -46,6 +52,7 @@ export function App() {
     saveKeys(next);
     setExamId(examFromKey(key).id);
     setResponses({});
+    setModuleChoices({});
     setTab('sheet');
   };
 
@@ -56,6 +63,7 @@ export function App() {
     saveKeys(next);
     setExamId(BUILTIN_EXAMS[0].id);
     setResponses({});
+    setModuleChoices({});
   };
 
   if (report) {
@@ -79,7 +87,7 @@ export function App() {
           <label htmlFor="exam" className="secondary">
             Test
           </label>
-          <select id="exam" value={exam.id} onChange={(e) => selectExam(e.target.value)} style={{ maxWidth: '100%' }}>
+          <select id="exam" value={baseExam.id} onChange={(e) => selectExam(e.target.value)} style={{ maxWidth: '100%' }}>
             {exams.map((e) => (
               <option key={e.id} value={e.id}>
                 {e.name}
@@ -95,6 +103,35 @@ export function App() {
             </button>
           )}
         </div>
+        {routedSections(baseExam).length > 0 && (
+          <div className="row small secondary" style={{ marginTop: 8 }}>
+            <span>Module 2 for entered answers:</span>
+            {routedSections(baseExam).map((section) => {
+              const decision = routed.decisions.find((d) => d.sectionId === section.id);
+              return (
+                <label key={section.id} className="row" style={{ gap: 4 }}>
+                  {section.shortName}
+                  <select
+                    value={moduleChoices[section.id] ?? 'auto'}
+                    onChange={(e) => setModuleChoices((c) => ({ ...c, [section.id]: e.target.value as ModuleChoice }))}
+                  >
+                    <option value="auto">Auto (cutoff, checked by answers)</option>
+                    {baseExam.key.versions![section.id].map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.name}
+                      </option>
+                    ))}
+                  </select>
+                  {decision && (
+                    <span className="muted" title={decision.reason}>
+                      {decision.versionName} · {ROUTE_METHOD_LABEL[decision.method]}
+                    </span>
+                  )}
+                </label>
+              );
+            })}
+          </div>
+        )}
         {exam.key.isDemo && (
           <p className="muted small" style={{ marginBottom: 0 }}>
             This test uses a placeholder answer key for trying out the grader. Import a real key under “Answer key”.
@@ -128,7 +165,11 @@ export function App() {
           <BubbleSheet key={exam.id} exam={exam} responses={responses} onChange={(id, v) => setResponses((r) => ({ ...r, [id]: v }))} />
         )}
         {tab === 'paste' && (
-          <PastePanel exam={exam} onLoad={setResponses} onResults={(g, r) => setReport({ ...grade(g.exam, r.responses, r.outcomes), notes: g.notes })} />
+          <PastePanel
+            exam={exam}
+            onLoad={setResponses}
+            onResults={(g, r) => setReport({ ...grade(g.exam, r.responses, r.outcomes), notes: g.notes, routing: g.routing })}
+          />
         )}
         {tab === 'upload' && <UploadPanel exam={exam} onLoad={setResponses} />}
         {tab === 'key' && <KeyImport onImported={importKey} />}
@@ -143,7 +184,7 @@ export function App() {
         <button className="btn" disabled={!answered} onClick={() => confirm('Clear all answers?') && setResponses({})}>
           Clear
         </button>
-        <button className="btn primary" onClick={() => setReport(grade(exam, responses))}>
+        <button className="btn primary" onClick={() => setReport({ ...grade(exam, responses), routing: routed.decisions })}>
           Grade test
         </button>
       </div>

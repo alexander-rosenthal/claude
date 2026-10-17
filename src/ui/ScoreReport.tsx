@@ -10,6 +10,7 @@ import {
   type ScaleResult,
   type TopicResult,
 } from '../core/grader';
+import { ROUTE_METHOD_LABEL } from '../core/routing';
 import type { ScoreRange } from '../core/scoring';
 import type { Exam, Topic } from '../core/types';
 import { downloadText, rowsToCsv } from '../parsers/files';
@@ -430,6 +431,15 @@ export function ScoreReport({ report, studentName, onBack }: { report: GradeRepo
           ))}
         </div>
 
+        {report.routing.length > 0 && (
+          <ul className="routing small" aria-label="Module 2 versions">
+            {report.routing.map((d) => (
+              <li key={d.sectionId}>
+                <b>{d.sectionName}:</b> {d.versionName} — {ROUTE_METHOD_LABEL[d.method]}. <span className="muted">{d.reason}</span>
+              </li>
+            ))}
+          </ul>
+        )}
         {notes.length > 0 && (
           <p className="muted small" style={{ marginBottom: 0 }}>
             {notes.join(' ')}

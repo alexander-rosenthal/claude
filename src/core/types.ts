@@ -106,6 +106,14 @@ export interface AnswerKeyEntry {
   /** Domain: the main category. */
   category: string;
   topics: Topic[];
+  /** For an adaptive section with several versions: which one this entry belongs to. */
+  version?: string;
+}
+
+/** One version of an adaptive section (e.g. the easier Module 2). */
+export interface SectionVersion {
+  id: string;
+  name: string;
 }
 
 export interface AnswerKey {
@@ -119,8 +127,16 @@ export interface AnswerKey {
    * Bluebook results paste) and the key only supplies categories.
    */
   resultsOnly?: boolean;
+  /**
+   * Adaptive sections with more than one version, by section id. Entries for
+   * those sections carry a `version`; the first listed is the default.
+   */
+  versions?: Record<string, SectionVersion[]>;
   entries: AnswerKeyEntry[];
 }
+
+/** Which version of each multi-version section to use, by section id. */
+export type VersionChoice = Record<string, string>;
 
 export interface Question {
   /** Stable id: `${sectionId}-${number}`. */
@@ -147,6 +163,10 @@ export interface Exam {
   sections: Section[];
   scales: ScoreScale[];
   composites: CompositeScore[];
+  /** The version used for each multi-version section. */
+  versions: VersionChoice;
+  /** e.g. "RW 2: Easier, Math 2: Harder"; only for keys with versions. */
+  versionLabel?: string;
 }
 
 /** Student responses keyed by Question.id. Missing or '' means omitted. */
