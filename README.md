@@ -46,8 +46,8 @@ Bubble sheet / Paste / Upload ─► AnswerCollector ─► Responses ─┘
   
   The bubble sheet and Paste tabs offer a manual override: auto, harder, easier, and (on Paste only) domains only.
 - **`src/core/calibration.ts`**: calibrating estimated scores against official ones.
-  - Official section scores (e.g. from Bluebook) can be entered before grading. A typed score must be 200–800 and end in 0, so the total is 400–1600. The report shows the official score with the estimate beside it.
-  - Grading with official scores or pasted Bluebook results needs a ticked confirmation: "I have verified my results from Bluebook and confirm this data is accurate." That data trains the model. Changing a score clears the tick.
+  - Official section scores (e.g. from Bluebook) are required before grading a real digital SAT key. Demo keys and tests with official conversion tables are exempt. A score must be 200–800 and end in 0, so the total is 400–1600. The report shows the official score with the estimate beside it.
+  - Next to the Grade test button, a checkbox must be ticked: "I have verified my results from Bluebook and confirm this data is accurate." This applies whenever official scores or pasted Bluebook results are used, since that data trains the model. Changing a score clears the tick.
   - Pasted Bluebook results wait on the Grade button like any other input, so official scores can be entered first. A paste that's missing any question's result can't be graded. It lists the missing questions by module, such as "Math — Module 2: no result for questions 21–22."
   - Each graded score is saved in the browser as a calibration point and used for the very next estimate, so the model adapts with every test. Re-grading the same result replaces its point, which keeps corrected typos out. Sharing points between browsers or users takes Export/Import for now; a shared, always-current model needs a server.
   - A point records the test, scale, Module 2 version, raw score, official score and the questions missed, with no names.

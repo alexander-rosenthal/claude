@@ -8,7 +8,7 @@ import { BUILTIN_CALIBRATION, allPoints, loadSavedPoints, savePoints, scaleForPo
 import type { ParseResult } from '../parsers/collector';
 import type { BluebookGrading } from '../parsers/bluebook';
 import { BubbleSheet } from './BubbleSheet';
-import { ActualScoreInputs, CalibrationSummary, checkOfficialScores } from './Calibration';
+import { ACCURACY_CONFIRMATION, ActualScoreInputs, CalibrationSummary, checkOfficialScores } from './Calibration';
 import { PastePanel, UploadPanel } from './ImportPanels';
 import { KeyImport } from './KeyImport';
 import { ScoreReport } from './ScoreReport';
@@ -185,7 +185,7 @@ export function App() {
             })}
           </div>
         )}
-        <ActualScoreInputs exam={graded.exam} values={actualInput} onChange={setActualInput} check={check} confirmed={confirmed} onConfirm={setConfirmed} />
+        <ActualScoreInputs exam={graded.exam} values={actualInput} onChange={setActualInput} check={check} onConfirm={setConfirmed} />
         <CalibrationSummary saved={savedPoints} accuracy={accuracy} onChange={updatePoints} />
         {exam.key.isDemo && (
           <p className="muted small" style={{ marginBottom: 0 }}>
@@ -256,13 +256,13 @@ export function App() {
           </span>
         )}
         <span style={{ flex: 1 }} />
-        {!canGrade && (
+        {(pasteErrors.length > 0 || check.missing || check.errors.length > 0) && (
           <span className="muted small">
             {pasteErrors.length
               ? 'The pasted results are incomplete; see Paste.'
-              : check.errors.length
-                ? 'Fix the official scores to grade.'
-                : 'Confirm the data is accurate to grade.'}
+              : check.missing
+                ? 'Enter the official scores to grade.'
+                : 'Fix the official scores to grade.'}
           </span>
         )}
         <button
@@ -278,6 +278,12 @@ export function App() {
         >
           Clear
         </button>
+        {check.needsConfirmation && (
+          <label className="row small confirm" style={{ gap: 6 }}>
+            <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+            <span>{ACCURACY_CONFIRMATION}</span>
+          </label>
+        )}
         <button className="btn primary" disabled={!canGrade} onClick={gradeTest}>
           Grade test
         </button>

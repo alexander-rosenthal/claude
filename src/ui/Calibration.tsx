@@ -18,23 +18,39 @@ export interface OfficialScoreCheck {
   errors: string[];
   /** Official scores or Bluebook results are being used, so grading needs the accuracy confirmation. */
   needsConfirmation: boolean;
+  /** A required score is still empty. */
+  missing: boolean;
   /** Ready to grade. */
   ok: boolean;
 }
 
 /**
- * Check entered official scores: each must be on the scale (200–800 in steps
- * of 10 on the SAT) and a composite in range (400–1600). Grading with
- * official scores or pasted Bluebook results needs the user's confirmation
- * that the data matches Bluebook, since it trains the score model.
+ * Scales that need an official score before grading: every estimated scale
+ * of a real key. Placeholder demo keys have no official score.
+ */
+export function requiredScales(exam: Exam): ScoreScale[] {
+  return exam.key.isDemo ? [] : estimatedScales(exam);
+}
+
+/**
+ * Check entered official scores: required ones must be filled, each must be
+ * on the scale (200–800 in steps of 10 on the SAT) and a composite in range
+ * (400–1600). Grading with official scores or pasted Bluebook results needs
+ * the user's confirmation that the data matches Bluebook, since it trains
+ * the score model.
  */
 export function checkOfficialScores(exam: Exam, values: Record<string, string>, { confirmed = false, bluebookResults = false } = {}): OfficialScoreCheck {
   const scores: Record<string, number> = {};
   const errors: string[] = [];
   let typed = false;
+  let missing = false;
+  const required = requiredScales(exam);
   for (const scale of estimatedScales(exam)) {
     const text = values[scale.id]?.trim();
-    if (!text) continue;
+    if (!text) {
+      if (required.includes(scale)) missing = true;
+      continue;
+    }
     typed = true;
     const n = Number(text);
     if (!Number.isInteger(n) || n < scale.min || n > scale.max) errors.push(`${scale.name}: enter a score from ${scale.min} to ${scale.max}.`);
@@ -47,8 +63,8 @@ export function checkOfficialScores(exam: Exam, values: Record<string, string>, 
     const total = parts.reduce((a, b) => a + b, 0);
     if (total < composite.min || total > composite.max) errors.push(`${composite.name} must be from ${composite.min} to ${composite.max}.`);
   }
-  const needsConfirmation = typed || bluebookResults;
-  return { scores, errors, needsConfirmation, ok: errors.length === 0 && (!needsConfirmation || confirmed) };
+  const needsConfirmation = typed || bluebookResults || required.length > 0;
+  return { scores, errors, needsConfirmation, missing, ok: errors.length === 0 && !missing && (!needsConfirmation || confirmed) };
 }
 
 export function ActualScoreInputs({
@@ -56,22 +72,22 @@ export function ActualScoreInputs({
   values,
   onChange,
   check,
-  confirmed,
   onConfirm,
 }: {
   exam: Exam;
   values: Record<string, string>;
   onChange: (v: Record<string, string>) => void;
   check: OfficialScoreCheck;
-  confirmed: boolean;
+  /** Called with false when a score changes, so the accuracy confirmation must be given again. */
   onConfirm: (v: boolean) => void;
 }) {
   const scales = estimatedScales(exam);
+  const required = requiredScales(exam).length > 0;
   return (
     <div className="small secondary" style={{ marginTop: 8 }}>
       {scales.length > 0 && (
         <div className="row">
-          <span title="Saved (without names) to train the score model.">Official scores (optional):</span>
+          <span title="Saved (without names) to train the score model.">Official scores{required ? '' : ' (optional)'}:</span>
           {scales.map((scale) => (
             <label key={scale.id} className="row" style={{ gap: 4 }}>
               {scale.name}
@@ -92,12 +108,6 @@ export function ActualScoreInputs({
           ))}
           {check.errors.length > 0 && <span className="field-error">{check.errors.join(' ')}</span>}
         </div>
-      )}
-      {check.needsConfirmation && (
-        <label className="row" style={{ gap: 6, marginTop: 4 }}>
-          <input type="checkbox" checked={confirmed} onChange={(e) => onConfirm(e.target.checked)} />
-          <span>{ACCURACY_CONFIRMATION}</span>
-        </label>
       )}
     </div>
   );

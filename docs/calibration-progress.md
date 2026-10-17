@@ -58,8 +58,8 @@ are duplicates ("(1)" copies).
 
 ## Official score entry
 
-- Official scores are optional, with format checks only (200–800, ending in
-  0). There is no check against the estimate. Grading with official scores or
-  pasted Bluebook results needs the user's accuracy confirmation.
+- Official scores are required for real digital SAT keys, with format checks
+  only (200–800, ending in 0). There is no check against the estimate. Grading
+  needs the accuracy confirmation checkbox next to the Grade test button.
 - Every graded official score is saved in the browser and used for the next
   estimate. Sharing across users needs Export/Import, or a server later.
