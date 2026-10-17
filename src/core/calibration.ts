@@ -34,6 +34,8 @@ export interface CalibrationPoint {
   actual: number;
   /** Question ids not answered correctly, kept for item-level modeling later. */
   missed?: string[];
+  /** Where the point came from (an anonymized report id), for built-in points. */
+  source?: string;
 }
 
 export const CALIBRATION = {

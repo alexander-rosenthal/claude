@@ -54,11 +54,17 @@ Bubble sheet / Paste / Upload ─► AnswerCollector ─► Responses ─┘
 
     Each correction is a kernel-weighted average of nearby residuals, shrunk toward zero when there are few points, and the curve stays monotonic.
   - The panel under the test picker reports the typical error, measured by leaving one point out at a time. It can export, import or clear points.
-  - Exported points can be added to the built-in set in `src/exams/calibration.ts`. That file holds the four section scores from the two sample reports.
+  - Built-in points (`src/exams/calibrationData.json`) come from 78 anonymized tutoring-platform reports across 8 Bluebook practice tests: 156 section scores. They're extracted by `scripts/extract-nlt-report.mjs` into `data/nlt-reports.json`, then turned into points by `scripts/build-calibration.mjs`. That script also tells the Module 2 versions apart and reports how well each cutoff predicts the route.
+  - Leave-one-out on those points:
+
+    | | Average error | Within 20 points |
+    |---|---|---|
+    | Uncalibrated | ±42 | 39% |
+    | Calibrated | ±13.5 | 87% |
 
 ## Known gaps
 
-- **Digital SAT scores are estimates.** Bluebook scores the adaptive test with item response theory, whose parameters aren't published. The estimate applies the official paper Practice Test 4 table, matched on percent correct, then corrects it with whatever official scores have been collected for that Module 2 version and test. So far there is one built-in point per scale and version, too few to correct each other. Paper tests with an official table (`ScoreScale.ranges`) report the official range. ACT conversions are still a generic estimate.
+- **Digital SAT scores are estimates.** Bluebook scores the adaptive test with item response theory, whose parameters aren't published. The estimate applies the official paper Practice Test 4 table, matched on percent correct, then corrects it with whatever official scores have been collected for that Module 2 version and test. With the built-in points, the average error is about ±13.5 per section. It's larger for easier-route students, who are fewer in the data. Paper tests with an official table (`ScoreScale.ranges`) report the official range. ACT conversions are still a generic estimate.
 - The paper Practice Test 4 key has no question categories, because the scoring guide doesn't list them.
 - The Module 2 cutoffs are approximations. Bluebook's routing weighs question difficulty, and the harder-route sample student missed 8 in RW Module 1 yet got the harder module. The answer check catches such cases, but a Bluebook paste for RW can't be checked.
 - Bluebook pastes give domains only. Skills come from a tagged key, and only for the modules the key covers.

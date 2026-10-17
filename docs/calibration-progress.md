@@ -19,10 +19,17 @@ are duplicates ("(1)" copies).
       Every grid's exact-match count equals the report's raw score, except 4
       PT4 easier-route reports where NLT scores Math out of 43 (one question
       dropped); we count all 44.
-- [ ] 3. PT4: add every report as a calibration point; check the key and routing
-      against all 27.
-- [ ] 4. Other tests: build keys (both Module 2 versions where available).
-- [ ] 5. Add points for other tests; measure leave-one-out error; report.
+- [x] 3. Every report is now two calibration points (`scripts/build-calibration.mjs`
+      → `src/exams/calibrationData.json`, 156 points). The PT4 key agrees with all
+      25 PT4 reports. Leave-one-out error: ±42 uncalibrated → ±13.5 calibrated
+      (87% within 20 points).
+- [ ] 4. Other tests: build app keys from the grids (answers are in the data;
+      skill tags would need the topic pages, not yet extracted). Versions seen:
+      PT5 RW harder only; PT8 harder only; PT10 RW harder only.
+- [x] 5. Points for other tests are in (they feed the pooled correction even
+      without keys in the app).
+- [ ] 6. Cutoffs: data favors more than 9 → easier for both sections (RW 2 of 78
+      misrouted, Math 4 of 78) over 7/5 (10 and 16 misrouted). Waiting on the user.
 
 ## Findings so far
 

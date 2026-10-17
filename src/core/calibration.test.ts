@@ -7,7 +7,7 @@ import harderSample from '../parsers/fixtures/pt4-bluebook-sample-harder.json';
 import easierSample from '../parsers/fixtures/pt4-bluebook-sample-easier.json';
 import pt4Results from '../parsers/fixtures/bluebook-pt4-results.txt?raw';
 import { examForBluebookResults, parseBluebook } from '../parsers/bluebook';
-import { applyScores, calibratedCurve, leaveOneOut, mergePoints, pointsFromReport, type CalibrationPoint } from './calibration';
+import { applyScores, calibratedCurve, leaveOneOut, mergePoints, pointsFromReport, samePoint, type CalibrationPoint } from './calibration';
 import { grade, type GradeReport } from './grader';
 import { routeByAnswers } from './routing';
 import { toScaled } from './scoring';
@@ -98,10 +98,30 @@ describe('applyScores', () => {
 });
 
 describe('calibration points', () => {
-  it('are taken from a report with official scores, matching the built-in sample points', () => {
+  it('are taken from a report with official scores, matching the built-in points for the sample students', () => {
     const harder = pointsFromReport(applyScores(sampleReport(harderSample), [], { rw: 610, math: 600 }));
     const easier = pointsFromReport(applyScores(sampleReport(easierSample), [], { rw: 430, math: 490 }));
-    expect([...harder, ...easier]).toEqual(BUILTIN_CALIBRATION);
+    expect([...harder, ...easier].map((p) => [p.scaleId, p.version, p.raw, p.actual])).toEqual([
+      ['rw', 'harder', 36, 610],
+      ['math', 'harder', 29, 600],
+      ['rw', 'easier', 31, 430],
+      ['math', 'easier', 27, 490],
+    ]);
+    for (const p of [...harder, ...easier]) expect(BUILTIN_CALIBRATION.some((b) => samePoint(b, p))).toBe(true);
+  });
+
+  it('bring the sample students’ estimates close to their Bluebook scores', () => {
+    for (const [sample, actual] of [
+      [harderSample, { rw: 610, math: 600 }],
+      [easierSample, { rw: 430, math: 490 }],
+    ] as const) {
+      const report = sampleReport(sample);
+      const own = pointsFromReport(applyScores(report, [], actual));
+      const others = BUILTIN_CALIBRATION.filter((b) => !own.some((p) => samePoint(b, p)));
+      const [rw, math] = applyScores(report, others).scales;
+      expect(Math.abs(rw.estimate - actual.rw)).toBeLessThanOrEqual(30);
+      expect(Math.abs(math.estimate - actual.math)).toBeLessThanOrEqual(30);
+    }
   });
 
   it('come from a Bluebook paste only for sections with a known Module 2 version', () => {
@@ -133,11 +153,10 @@ describe('calibration points', () => {
   });
 
   it('measure accuracy by leaving one out', () => {
-    // Each built-in point is the only one for its scale and version, so the
-    // others can't predict it yet: calibrated error equals uncalibrated.
+    // Each built-in point predicted from all the others.
     const accuracy = leaveOneOut(BUILTIN_CALIBRATION, scaleForPoint);
-    expect(accuracy.n).toBe(4);
-    expect(accuracy.uncalibrated).toBe((40 + 40 + 90 + 40) / 4);
-    expect(accuracy.calibrated).toBe(accuracy.uncalibrated);
+    expect(accuracy.n).toBe(156);
+    expect(accuracy.uncalibrated).toBeGreaterThan(40);
+    expect(accuracy.calibrated).toBeLessThan(15);
   });
 });
