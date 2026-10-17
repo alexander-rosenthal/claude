@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Exam, Responses } from '../core/types';
 import type { ParseResult } from '../parsers/collector';
 import { readRowsFromFile } from '../parsers/files';
@@ -12,7 +12,7 @@ import {
   parseBluebook,
   type BluebookGrading,
 } from '../parsers/bluebook';
-import { parsePastedResponses, responsesFromRows } from '../parsers/responses';
+import { parseForAnyVersion, parsePastedResponses, responsesFromRows } from '../parsers/responses';
 
 interface Props {
   exam: Exam;
@@ -61,18 +61,32 @@ export function ParseNotice({ result }: { result: ParseResult | null }) {
 }
 
 interface PasteProps extends Props {
+  /** The paste box's text, kept by the parent so it survives switching tabs. */
+  text: string;
+  onTextChange: (text: string) => void;
   /** A pasted Bluebook results table: already graded, graded for the report once official scores are entered. */
   onResults: (grading: BluebookGrading, result: ParseResult) => void;
+  /** The paste box was emptied. */
+  onClear: () => void;
+  /** What was last read (text, Module 2 choices and test), so returning to this tab doesn't re-read it over later edits. */
+  lastRead: { current: string };
 }
 
-export function PastePanel({ exam, onLoad, onResults }: PasteProps) {
-  const [text, setText] = useState('');
+/** How long typing must pause before the paste is read again. */
+const READ_DELAY_MS = 250;
+
+export function PastePanel({ exam, onLoad, onResults, onClear, text, onTextChange, lastRead }: PasteProps) {
   const [result, setResult] = useState<ParseResult | null>(null);
   const [moduleChoices, setModuleChoices] = useState<Record<string, PasteModuleChoice>>({});
   const isSat = exam.family === 'SAT';
   const adaptive = hasUsableDigitalKey(exam) ? exam.sections.filter((s) => s.adaptive) : [];
 
   const load = () => {
+    if (!text.trim()) {
+      setResult(null);
+      onClear();
+      return;
+    }
     if (isSat && looksLikeBluebook(text)) {
       const target = bluebookTargetExam(exam);
       const parsed = parseBluebook(target, text);
@@ -88,10 +102,23 @@ export function PastePanel({ exam, onLoad, onResults }: PasteProps) {
       if (target === exam && r.answered) onLoad(r.responses);
       return;
     }
-    const r = parsePastedResponses(exam, text);
+    const r = parseForAnyVersion(exam, (e) => parsePastedResponses(e, text));
     setResult(r);
     if (r.answered) onLoad(r.responses);
   };
+
+  // Read the paste as soon as it's pasted or typed: no formatting or extra click needed.
+  // Keyed on the test, not the exam object, which changes with every answer loaded.
+  useEffect(() => {
+    const signature = JSON.stringify([text, moduleChoices, exam.key.id, exam.format.id]);
+    if (signature === lastRead.current) return;
+    const timer = setTimeout(() => {
+      lastRead.current = signature;
+      load();
+    }, READ_DELAY_MS);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text, moduleChoices, exam.key.id, exam.format.id]);
 
   return (
     <div>
@@ -104,7 +131,7 @@ export function PastePanel({ exam, onLoad, onResults }: PasteProps) {
         ) : (
           'Paste a list of answers.'
         )}{' '}
-        Accepted formats, mixed freely:
+        No formatting needed. It recognizes, mixed freely:
       </p>
       <ul className="secondary small" style={{ marginTop: 0 }}>
         <li>
@@ -123,7 +150,12 @@ export function PastePanel({ exam, onLoad, onResults }: PasteProps) {
         </li>
         <li>Rows copied from a spreadsheet (Section, Question, Answer)</li>
       </ul>
-      <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder={`${exam.sections[0].name}\n1 A\n2 C\n…`} />
+      <textarea
+        value={text}
+        onChange={(e) => onTextChange(e.target.value)}
+        aria-label="Paste answers or Bluebook results"
+        placeholder={`Paste here, as is. It's read automatically.\n\n${exam.sections[0].name}\n1 A\n2 C\n…`}
+      />
       {adaptive.length > 0 && (
         <div className="row small secondary" style={{ marginTop: 8 }}>
           <span>For a Bluebook results paste, Module 2:</span>
@@ -147,12 +179,9 @@ export function PastePanel({ exam, onLoad, onResults }: PasteProps) {
           })}
         </div>
       )}
-      <div className="row" style={{ marginTop: 8 }}>
-        <button className="btn primary" disabled={!text.trim()} onClick={load}>
-          Load answers
-        </button>
-        <span className="muted small">Replaces the answers currently on the sheet.</span>
-      </div>
+      <p className="muted small" style={{ margin: '8px 0 0' }}>
+        Read automatically as you paste; answers replace those on the bubble sheet.
+      </p>
       <ParseNotice result={result} />
     </div>
   );
@@ -168,7 +197,7 @@ export function UploadPanel({ exam, onLoad }: Props) {
     setError('');
     try {
       const { rows, warnings } = await readRowsFromFile(file);
-      const r = responsesFromRows(exam, rows);
+      const r = parseForAnyVersion(exam, (e) => responsesFromRows(e, rows));
       r.warnings.unshift(...warnings);
       setResult(r);
       if (r.answered) onLoad(r.responses);

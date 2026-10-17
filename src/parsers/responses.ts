@@ -1,6 +1,7 @@
 /**
  * Turn pasted text or spreadsheet rows into student responses.
  */
+import { buildAllVersions } from '../core/exam';
 import type { Exam } from '../core/types';
 import { bluebookTargetExam, looksLikeBluebook, parseBluebook } from './bluebook';
 import { AnswerCollector, type ParseResult } from './collector';
@@ -60,12 +61,31 @@ export function responsesFromRows(exam: Exam, rows: Row[]): ParseResult {
 // A dash only separates when it isn't the sign of a numeric answer ("3 -4").
 const PAIR = /(\d+)(?:\s*[.):=](?!\d)\s*|\s*-(?=\s|[A-Ka-k(])\s*|\s+|(?=\(?[A-Ka-k](?![A-Za-z])))(\(?[A-Ka-k]\)?(?![A-Za-z])|[-−]?\d*\.?\d+(?:\/\d+)?|[-–—](?=\s|$|,))/g;
 const LETTER_RUN = /^[A-Ka-k\-–—_\s,]+$/;
+// One bare answer: a letter, a grid-in number ("2.9", "-23", "3/2"), or a blank marker.
+const ANSWER_TOKEN = /^(?:\(?[A-Ka-k]\)?|[-−]?\d*\.?\d+(?:\/\d*\.?\d+)?|[-–—_])$/;
+
+/**
+ * A line of bare answers in order ("C A B 2.9 D 27 -23"), as students type
+ * them without numbering, or one per line. Not "1 A 2 B", where every other token counts up
+ * by one: that's numbered.
+ */
+function plainAnswers(line: string, listMode: boolean): string[] | null {
+  const tokens = line.split(/[\s,;]+/).filter(Boolean);
+  if (!tokens.length || !tokens.every((t) => ANSWER_TOKEN.test(t))) return null;
+  // A lone number could be a stray question number; it's an answer only within a list of answers.
+  if (tokens.length === 1 && !listMode && /\d/.test(tokens[0])) return null;
+  const numbers = tokens.filter((_, i) => i % 2 === 0);
+  const numbered =
+    tokens.length % 2 === 0 && numbers.every((t) => /^\d+$/.test(t)) && numbers.every((t, i) => i === 0 || Number(t) === Number(numbers[i - 1]) + 1);
+  return numbered ? null : tokens;
+}
 
 /**
  * Responses from free-form pasted text. Understands, in any mix:
  *   section headings ("Math Module 1", "English")
  *   numbered answers ("1. A", "2) B", "3: 3/2", several per line)
  *   letter runs ("ABDCA BCD…", one answer per letter, "-" for blank)
+ *   plain answer lists ("C A B 2.9 D 27", in order, no numbering)
  * Tab-separated tables and Bluebook score-detail pastes are detected and
  * handed to their own parsers.
  */
@@ -78,6 +98,11 @@ export function parsePastedResponses(exam: Exam, text: string): ParseResult {
   }
 
   const collector = new AnswerCollector(exam);
+  // Plain answers elsewhere (a letter, or several answers on a line) mean a lone number is an answer too.
+  const listMode = lines.some((l) => {
+    const tokens = plainAnswers(l.trim(), false);
+    return tokens !== null && (tokens.length > 1 || /[A-Ka-k]/.test(tokens[0]));
+  });
   lines.forEach((rawLine, i) => {
     const line = rawLine.trim();
     const where = `line ${i + 1}`;
@@ -98,6 +123,12 @@ export function parsePastedResponses(exam: Exam, text: string): ParseResult {
       }
     }
 
+    const plain = plainAnswers(line, listMode);
+    if (plain) {
+      for (const t of plain) collector.add(null, t.replace(/[()]/g, ''), where);
+      return;
+    }
+
     if (pairs.length) {
       for (const m of pairs) collector.add(Number(m[1]), m[2].replace(/[()]/g, ''), where);
       return;
@@ -112,4 +143,15 @@ export function parsePastedResponses(exam: Exam, text: string): ParseResult {
     collector.warn(`Skipped ${where}: couldn't read "${line.slice(0, 40)}".`);
   });
   return collector.result();
+}
+
+/**
+ * Parse against every Module 2 version the key holds and keep the reading
+ * with the fewest problems (the current version on a tie). Which version a
+ * student saw isn't known until their answers are in, and the versions put
+ * grid-ins in different places.
+ */
+export function parseForAnyVersion(exam: Exam, parse: (exam: Exam) => ParseResult): ParseResult {
+  if (!exam.key.versions) return parse(exam);
+  return [exam, ...buildAllVersions(exam.format, exam.key)].map(parse).reduce((best, r) => (r.warnings.length < best.warnings.length ? r : best));
 }

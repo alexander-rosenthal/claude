@@ -33,7 +33,14 @@ Bubble sheet / Paste / Upload ─► AnswerCollector ─► Responses ─┘
   - seeded **placeholder demo keys** for trying out the tool.
 - **Bubble sheet marking**: after grading, the bubble sheet outlines each question's correct answer in green, whether or not it was selected, and a wrong selection in red. Grid-ins get a green or red box, and the accepted answer appears beside a missed one. A "Mark answers" toggle turns this on or off. It starts off for each new set of answers, so the key isn't shown while answers are being entered.
 - **`src/parsers`**: every input method goes through `AnswerCollector`, so they all follow the same rules for sections, restarting question numbers, running numbers and blanks.
-  - Paste accepts section headings, numbered answers (`1. A`, `2) B`, `3 C 4 D`), letter runs (`ABCD-AB`), and tab-separated rows.
+  - Paste is read automatically as soon as text is pasted or typed; there's no Load button, and no formatting is needed. It accepts, mixed freely:
+    - section headings;
+    - numbered answers (`1. A`, `2) B`, `3 C 4 D`);
+    - letter runs (`ABCD-AB`);
+    - plain answer lists in order (`C A B 2.9 D 27 -23`: one module per line, one answer per line, or all on one line);
+    - tab-separated rows.
+
+    Answers are checked against whichever Module 2 version they fit best, since the version isn't known until they're in.
   - **Bluebook score details** (Question / Section / Your Answer / Domain) are pasted as already-graded results. Bluebook lists Correct/Incorrect rather than the letter chosen, and counts blanks as incorrect. The domain becomes each question's category, and no answer key is needed. A restart in question numbering marks Module 2. A sample paste is in `src/parsers/fixtures`.
   - If a real digital key for the same test is selected, the paste picks up the key's correct answers and skill tags for Module 1 and for the routed Module 2 version (see below).
   - Upload reads `.xlsx`, `.csv` and `.tsv`. It accepts header-based columns (Section / Question / Answer), headerless columns, or a single column of answers.

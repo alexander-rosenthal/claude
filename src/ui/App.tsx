@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { estimateReport, leaveOneOut, mergePoints, pointsFromReport, sameResult, samePoint, type CalibrationPoint } from '../core/calibration';
 import { grade, type GradeReport } from '../core/grader';
 import { ROUTE_METHOD_LABEL, routeByAnswers, routedSections, type ModuleChoice } from '../core/routing';
@@ -46,6 +46,8 @@ export function App() {
   const [marked, setMarked] = useState(false);
   // Bluebook results pasted under "Paste": already graded, waiting for official scores.
   const [pasted, setPasted] = useState<{ grading: BluebookGrading; result: ParseResult } | null>(null);
+  const [pasteText, setPasteText] = useState('');
+  const lastRead = useRef('');
 
   const updatePoints = (points: CalibrationPoint[]) => {
     setSavedPoints(points);
@@ -96,6 +98,8 @@ export function App() {
     setExamId(id);
     setResponses({});
     setPasted(null);
+    setPasteText('');
+    lastRead.current = '';
     setModuleChoices({});
     setActualInput({});
     setConfirmed(false);
@@ -238,10 +242,14 @@ export function App() {
           <PastePanel
             exam={exam}
             onLoad={loadResponses}
+            text={pasteText}
+            onTextChange={setPasteText}
+            lastRead={lastRead}
             onResults={(g, r) => {
               setPasted({ grading: g, result: r });
               setConfirmed(false);
             }}
+            onClear={() => setPasted(null)}
           />
         )}
         {tab === 'upload' && <UploadPanel exam={exam} onLoad={loadResponses} />}
@@ -279,6 +287,8 @@ export function App() {
             if (!confirm('Clear all answers and official scores?')) return;
             setResponses({});
             setPasted(null);
+            setPasteText('');
+            lastRead.current = '';
             setActualInput({});
             setConfirmed(false);
             setMarked(false);

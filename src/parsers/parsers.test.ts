@@ -1,10 +1,11 @@
+import harderSample from './fixtures/pt4-bluebook-sample-harder.json';
 import { describe, expect, it } from 'vitest';
 import { grade } from '../core/grader';
 import { DEMO_EXAMS, OFFICIAL_EXAMS } from '../exams';
 import { SAT_FORMAT } from '../exams/formats';
 import { answerKeyFromRows, answerKeyTemplate } from './answerKey';
 import { bluebookTargetExam, cleanBluebookAnswer, examForBluebookResults, parseBluebook } from './bluebook';
-import { parsePastedResponses, responsesFromRows } from './responses';
+import { parseForAnyVersion, parsePastedResponses, responsesFromRows } from './responses';
 import pt4Results from './fixtures/bluebook-pt4-results.txt?raw';
 import { parseDelimited } from './table';
 import { buildExam } from '../core/exam';
@@ -68,6 +69,30 @@ Math Module 1
     const { responses, warnings } = parsePastedResponses(sat, '12');
     expect(responses).toEqual({});
     expect(warnings).toHaveLength(1);
+  });
+
+  it('reads unformatted answers in order: a line per module, or one per line', () => {
+    const pt4 = OFFICIAL_EXAMS.find((e) => e.key.id === 'sat-pt4-bluebook')!;
+    const lines = Object.values(harderSample);
+    const expected = Object.fromEntries(Object.entries(harderSample).flatMap(([id, a]) => a.split(' ').map((x, i) => [`${id}-${i + 1}`, x])));
+    for (const text of [lines.join('\n'), lines.join(' ').replace(/ /g, '\n'), lines.join(', ')]) {
+      const { responses, warnings } = parsePastedResponses(pt4, text);
+      expect(warnings).toEqual([]);
+      expect(responses).toEqual(expected);
+    }
+  });
+
+  it('checks pasted answers against the Module 2 version they fit', () => {
+    const pt4 = OFFICIAL_EXAMS.find((e) => e.key.id === 'sat-pt4-bluebook')!;
+    // The app guesses the easier Module 2 before any answers are in.
+    const easierFirst = buildExam(SAT_FORMAT, pt4.key, { rw2: 'easier', math2: 'easier' });
+    const text = Object.values(harderSample).join('\n');
+    expect(parsePastedResponses(easierFirst, text).warnings.length).toBeGreaterThan(0);
+    expect(parseForAnyVersion(easierFirst, (e) => parsePastedResponses(e, text)).warnings).toEqual([]);
+  });
+
+  it('still reads numbered answers as numbered', () => {
+    expect(parsePastedResponses(sat, '1 A 2 B 3 C').responses).toEqual({ 'rw1-1': 'A', 'rw1-2': 'B', 'rw1-3': 'C' });
   });
 
   it('routes tab-separated pastes through the table reader', () => {
