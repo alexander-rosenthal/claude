@@ -31,6 +31,7 @@ Bubble sheet / Paste / Upload ─► AnswerCollector ─► Responses ─┘
     - **SAT Practice Test 4 — Bluebook**: answers plus skill tags for Module 1 and both Module 2 versions (harder and easier), from two tutoring-platform reports. Both reports' figures are reproduced exactly in `grader.test.ts`.
     - **SAT Practice Test 4 — paper version**: the College Board's official key and conversion table, with score ranges;
   - seeded **placeholder demo keys** for trying out the tool.
+- **Bubble sheet marking**: after grading, the bubble sheet outlines each question's correct answer in green, whether or not it was selected, and a wrong selection in red. Grid-ins get a green or red box, and the accepted answer appears beside a missed one. A "Mark answers" toggle turns this on or off. It starts off for each new set of answers, so the key isn't shown while answers are being entered.
 - **`src/parsers`**: every input method goes through `AnswerCollector`, so they all follow the same rules for sections, restarting question numbers, running numbers and blanks.
   - Paste accepts section headings, numbered answers (`1. A`, `2) B`, `3 C 4 D`), letter runs (`ABCD-AB`), and tab-separated rows.
   - **Bluebook score details** (Question / Section / Your Answer / Domain) are pasted as already-graded results. Bluebook lists Correct/Incorrect rather than the letter chosen, and counts blanks as incorrect. The domain becomes each question's category, and no answer key is needed. A restart in question numbering marks Module 2. A sample paste is in `src/parsers/fixtures`.

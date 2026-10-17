@@ -282,6 +282,32 @@ details > summary {
   border-color: var(--ink);
   color: var(--surface);
 }
+.bubble.key {
+  border-color: var(--good);
+  box-shadow: 0 0 0 2px var(--good);
+}
+.bubble.wrong {
+  border-color: var(--bad);
+  box-shadow: 0 0 0 2px var(--bad);
+}
+.spr-input.key {
+  border-color: var(--good);
+  box-shadow: 0 0 0 1px var(--good);
+}
+.spr-input.wrong {
+  border-color: var(--bad);
+  box-shadow: 0 0 0 1px var(--bad);
+}
+.key-answer {
+  color: var(--good-ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  border: 1.5px solid var(--good);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+.mark-toggle {
+  margin-left: auto;
+}
 .spr-input {
   width: 92px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

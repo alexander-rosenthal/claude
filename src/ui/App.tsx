@@ -42,6 +42,8 @@ export function App() {
   const [actualInput, setActualInput] = useState<Record<string, string>>({});
   const [savedPoints, setSavedPoints] = useState<CalibrationPoint[]>(loadSavedPoints);
   const [confirmed, setConfirmed] = useState(false);
+  // Bubble sheet marking: off while answers go in, on once the test is graded.
+  const [marked, setMarked] = useState(false);
   // Bluebook results pasted under "Paste": already graded, waiting for official scores.
   const [pasted, setPasted] = useState<{ grading: BluebookGrading; result: ParseResult } | null>(null);
 
@@ -73,6 +75,7 @@ export function App() {
     if (!canGrade) return;
     const scored = estimateReport(graded, pool, check.scores);
     setReport(scored);
+    setMarked(true);
     const added = pointsFromReport(scored).filter((p) => !BUILTIN_CALIBRATION.some((b) => samePoint(b, p)));
     if (added.length) updatePoints(mergePoints(savedPoints.filter((p) => !added.some((a) => sameResult(a, p))), added));
   };
@@ -80,6 +83,7 @@ export function App() {
   const loadResponses = (next: Responses) => {
     setPasted(null);
     setConfirmed(false);
+    setMarked(false);
     setResponses(next);
   };
 
@@ -95,6 +99,7 @@ export function App() {
     setModuleChoices({});
     setActualInput({});
     setConfirmed(false);
+    setMarked(false);
   };
 
   const importKey = (key: AnswerKey) => {
@@ -221,6 +226,8 @@ export function App() {
             key={exam.id}
             exam={exam}
             responses={responses}
+            marked={marked}
+            onMarkedChange={setMarked}
             onChange={(id, v) => {
               setPasted(null);
               setResponses((r) => ({ ...r, [id]: v }));
@@ -274,6 +281,7 @@ export function App() {
             setPasted(null);
             setActualInput({});
             setConfirmed(false);
+            setMarked(false);
           }}
         >
           Clear
