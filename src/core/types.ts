@@ -127,6 +127,8 @@ export interface AnswerKey {
    * Bluebook results paste) and the key only supplies categories.
    */
   resultsOnly?: boolean;
+  /** For a results-only key built on a real key: that key's id. */
+  sourceKeyId?: string;
   /**
    * Adaptive sections with more than one version, by section id. Entries for
    * those sections carry a `version`; the first listed is the default.

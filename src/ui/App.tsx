@@ -1,9 +1,12 @@
 import { useMemo, useState } from 'react';
+import { applyScores, mergePoints, pointsFromReport, samePoint, type CalibrationPoint } from '../core/calibration';
 import { grade, type GradeReport } from '../core/grader';
 import { ROUTE_METHOD_LABEL, routeByAnswers, routedSections, type ModuleChoice } from '../core/routing';
 import type { AnswerKey, Exam, Responses } from '../core/types';
 import { BUILTIN_EXAMS, examFromKey, loadSavedKeys, saveKeys } from '../exams';
+import { BUILTIN_CALIBRATION, allPoints, loadSavedPoints, savePoints } from '../exams/calibration';
 import { BubbleSheet } from './BubbleSheet';
+import { ActualScoreInputs, CalibrationSummary, parseActualScores } from './Calibration';
 import { PastePanel, UploadPanel } from './ImportPanels';
 import { KeyImport } from './KeyImport';
 import { ScoreReport } from './ScoreReport';
@@ -34,6 +37,27 @@ export function App() {
   const [tab, setTab] = useState<Tab>('sheet');
   const [studentName, setStudentName] = useState('');
   const [report, setReport] = useState<GradeReport | null>(null);
+  const [actualInput, setActualInput] = useState<Record<string, string>>({});
+  const [savedPoints, setSavedPoints] = useState<CalibrationPoint[]>(loadSavedPoints);
+
+  const updatePoints = (points: CalibrationPoint[]) => {
+    setSavedPoints(points);
+    savePoints(points);
+  };
+
+  /**
+   * Show a graded report with calibrated estimates and any official scores
+   * entered, saving those scores as calibration points. The report's own
+   * points are left out of its estimate, so the estimate stays honest.
+   */
+  const showReport = (graded: GradeReport) => {
+    const { scores } = parseActualScores(graded.exam, actualInput);
+    const own = pointsFromReport(applyScores(graded, [], scores));
+    const pool = allPoints(savedPoints).filter((p) => !own.some((o) => samePoint(o, p)));
+    setReport(applyScores(graded, pool, scores));
+    const added = own.filter((p) => !BUILTIN_CALIBRATION.some((b) => samePoint(b, p)));
+    if (added.length) updatePoints(mergePoints(savedPoints, added));
+  };
 
   const answered = exam.sections.reduce((n, s) => n + s.questions.filter((q) => responses[q.id]).length, 0);
   const total = exam.sections.reduce((n, s) => n + s.questions.length, 0);
@@ -44,6 +68,7 @@ export function App() {
     setExamId(id);
     setResponses({});
     setModuleChoices({});
+    setActualInput({});
   };
 
   const importKey = (key: AnswerKey) => {
@@ -132,6 +157,8 @@ export function App() {
             })}
           </div>
         )}
+        <ActualScoreInputs exam={exam} values={actualInput} onChange={setActualInput} />
+        <CalibrationSummary saved={savedPoints} onChange={updatePoints} />
         {exam.key.isDemo && (
           <p className="muted small" style={{ marginBottom: 0 }}>
             This test uses a placeholder answer key for trying out the grader. Import a real key under “Answer key”.
@@ -168,7 +195,7 @@ export function App() {
           <PastePanel
             exam={exam}
             onLoad={setResponses}
-            onResults={(g, r) => setReport({ ...grade(g.exam, r.responses, r.outcomes), notes: g.notes, routing: g.routing })}
+            onResults={(g, r) => showReport({ ...grade(g.exam, r.responses, r.outcomes), notes: g.notes, routing: g.routing })}
           />
         )}
         {tab === 'upload' && <UploadPanel exam={exam} onLoad={setResponses} />}
@@ -181,10 +208,14 @@ export function App() {
           <span className="muted">/{total} answered</span>
         </span>
         <span style={{ flex: 1 }} />
-        <button className="btn" disabled={!answered} onClick={() => confirm('Clear all answers?') && setResponses({})}>
+        <button className="btn" disabled={!answered} onClick={() => {
+            if (!confirm('Clear all answers and official scores?')) return;
+            setResponses({});
+            setActualInput({});
+          }}>
           Clear
         </button>
-        <button className="btn primary" onClick={() => setReport({ ...grade(exam, responses), routing: routed.decisions })}>
+        <button className="btn primary" onClick={() => showReport({ ...grade(exam, responses), routing: routed.decisions })}>
           Grade test
         </button>
       </div>

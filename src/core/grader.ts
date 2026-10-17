@@ -72,7 +72,14 @@ export interface ScaleResult {
   scale: ScoreScale;
   raw: number;
   maxRaw: number;
+  /** The score to report: the actual score when one was entered, else the estimate. */
   scaled: number;
+  /** Converted from the raw score (and calibrated, when calibration data applies). */
+  estimate: number;
+  /** The official score entered by the user (e.g. from Bluebook), if any. */
+  actual: number | null;
+  /** How many actual scores calibrated the estimate: across tests, and for this test. */
+  calibration: { pooled: number; test: number } | null;
   /** Official score range, when the scale's conversion table gives one. */
   range: ScoreRange | null;
   tally: Tally;
@@ -84,6 +91,8 @@ export interface ScaleResult {
 export interface CompositeResult {
   composite: CompositeScore;
   value: number;
+  /** The composite of the estimates; differs from `value` when actual scores were entered. */
+  estimate: number;
   range: ScoreRange | null;
 }
 
@@ -183,6 +192,9 @@ export function grade(exam: Exam, responses: Responses, outcomes: Outcomes = {})
       raw: t.correct,
       maxRaw: t.total,
       scaled: toScaled(scale, t.correct),
+      estimate: toScaled(scale, t.correct),
+      actual: null,
+      calibration: null,
       range: toScaledRange(scale, t.correct),
       tally: t,
       sections: sections.map((section) => ({
@@ -194,12 +206,16 @@ export function grade(exam: Exam, responses: Responses, outcomes: Outcomes = {})
     };
   });
 
-  const scaledById = Object.fromEntries(scales.map((s) => [s.scale.id, s.scaled]));
-  const rangesById = Object.fromEntries(scales.map((s) => [s.scale.id, s.range]));
-  const composites: CompositeResult[] = exam.composites.flatMap((composite) => {
-    const value = computeComposite(composite, scaledById);
-    return value == null ? [] : [{ composite, value, range: computeCompositeRange(composite, rangesById) }];
-  });
+  return { exam, gradedAt: new Date(), questions, scales, composites: compositesOf(exam, scales), overall: tally(questions), notes: [], routing: [] };
+}
 
-  return { exam, gradedAt: new Date(), questions, scales, composites, overall: tally(questions), notes: [], routing: [] };
+/** Composite scores from scale results (recomputed when scale scores change). */
+export function compositesOf(exam: Exam, scales: ScaleResult[]): CompositeResult[] {
+  const byId = (pick: (s: ScaleResult) => number) => Object.fromEntries(scales.map((s) => [s.scale.id, pick(s)]));
+  const rangesById = Object.fromEntries(scales.map((s) => [s.scale.id, s.actual == null ? s.range : null]));
+  return exam.composites.flatMap((composite) => {
+    const value = computeComposite(composite, byId((s) => s.scaled));
+    const estimate = computeComposite(composite, byId((s) => s.estimate));
+    return value == null || estimate == null ? [] : [{ composite, value, estimate, range: computeCompositeRange(composite, rangesById) }];
+  });
 }

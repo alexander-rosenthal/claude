@@ -45,10 +45,20 @@ Bubble sheet / Paste / Upload ─► AnswerCollector ─► Responses ─┘
   3. The report lists each section's version and how it was chosen: cutoff, confirmed by answers or domains, overridden by answers or domains, inferred, or chosen manually.
   
   The bubble sheet and Paste tabs offer a manual override: auto, harder, easier, and (on Paste only) domains only.
+- **`src/core/calibration.ts`**: calibrating estimated scores against official ones.
+  - Enter a student's official section scores (e.g. from Bluebook) before grading. The report then shows the official score with our estimate beside it.
+  - Each such score is saved in the browser as a calibration point. A point records the test, scale, Module 2 version, raw score, official score and the questions missed, with no names.
+  - Estimates are the conversion curve plus two corrections:
+    - one pooled across all tests with the same Module 2 version;
+    - one for the test itself.
+
+    Each correction is a kernel-weighted average of nearby residuals, shrunk toward zero when there are few points, and the curve stays monotonic.
+  - The panel under the test picker reports the typical error, measured by leaving one point out at a time. It can export, import or clear points.
+  - Exported points can be added to the built-in set in `src/exams/calibration.ts`. That file holds the four section scores from the two sample reports.
 
 ## Known gaps
 
-- **Digital SAT scores are estimates.** Bluebook scores the adaptive test with item response theory, which isn't published. The estimate applies the official paper Practice Test 4 table, matched on percent correct. Paper tests with an official table (`ScoreScale.ranges`) report the official range. ACT conversions are still a generic estimate.
+- **Digital SAT scores are estimates.** Bluebook scores the adaptive test with item response theory, whose parameters aren't published. The estimate applies the official paper Practice Test 4 table, matched on percent correct, then corrects it with whatever official scores have been collected for that Module 2 version and test. So far there is one built-in point per scale and version, too few to correct each other. Paper tests with an official table (`ScoreScale.ranges`) report the official range. ACT conversions are still a generic estimate.
 - The paper Practice Test 4 key has no question categories, because the scoring guide doesn't list them.
 - The Module 2 cutoffs are approximations. Bluebook's routing weighs question difficulty, and the harder-route sample student missed 8 in RW Module 1 yet got the harder module. The answer check catches such cases, but a Bluebook paste for RW can't be checked.
 - Bluebook pastes give domains only. Skills come from a tagged key, and only for the modules the key covers.

@@ -14,31 +14,31 @@ export function toScaledRange(scale: ScoreScale, raw: number): ScoreRange | null
 }
 
 /**
- * Convert a raw score to a scaled score. With an official range table this is
- * the range midpoint; otherwise values between anchors are interpolated.
+ * The unrounded raw → scaled curve: the official range midpoint when the scale
+ * has a table, otherwise linear interpolation between anchors.
  */
-export function toScaled(scale: ScoreScale, raw: number): number {
+export function scaledCurve(scale: ScoreScale, raw: number): number {
   const range = toScaledRange(scale, raw);
+  if (range) return (range.lower + range.upper) / 2;
   const anchors = [...scale.anchors].sort((a, b) => a.raw - b.raw);
+  if (anchors.length === 0) return scale.min;
+  if (raw <= anchors[0].raw) return anchors[0].scaled;
+  if (raw >= anchors[anchors.length - 1].raw) return anchors[anchors.length - 1].scaled;
+  const hi = anchors.findIndex((a) => a.raw >= raw);
+  const lo = anchors[hi - 1];
+  const up = anchors[hi];
+  return lo.scaled + ((raw - lo.raw) / (up.raw - lo.raw)) * (up.scaled - lo.scaled);
+}
 
-  let value: number;
-  if (range) {
-    value = (range.lower + range.upper) / 2;
-  } else if (anchors.length === 0) {
-    value = scale.min;
-  } else if (raw <= anchors[0].raw) {
-    value = anchors[0].scaled;
-  } else if (raw >= anchors[anchors.length - 1].raw) {
-    value = anchors[anchors.length - 1].scaled;
-  } else {
-    const hi = anchors.findIndex((a) => a.raw >= raw);
-    const lo = anchors[hi - 1];
-    const up = anchors[hi];
-    value = lo.scaled + ((raw - lo.raw) / (up.raw - lo.raw)) * (up.scaled - lo.scaled);
-  }
-
+/** Round to the scale's step and clamp to its range. */
+export function roundScaled(scale: ScoreScale, value: number): number {
   const rounded = Math.round(value / scale.step) * scale.step;
   return Math.min(scale.max, Math.max(scale.min, rounded));
+}
+
+/** Convert a raw score to a scaled score. */
+export function toScaled(scale: ScoreScale, raw: number): number {
+  return roundScaled(scale, scaledCurve(scale, raw));
 }
 
 /**

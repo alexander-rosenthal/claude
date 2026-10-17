@@ -217,6 +217,12 @@ textarea {
 .notice.ok {
   border-left-color: var(--good);
 }
+.field-error {
+  color: var(--bad);
+}
+details > summary {
+  cursor: pointer;
+}
 .notice ul {
   margin: 4px 0 0;
   padding-left: 18px;

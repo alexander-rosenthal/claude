@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import {
   MASTERY_THRESHOLDS,
   type CategoryResult,
+  type CompositeResult,
   type GradeReport,
   type Mastery,
   type MasterySummary,
@@ -366,6 +367,23 @@ function QuestionTable({ report, showAnswers }: { report: GradeReport; showAnswe
   );
 }
 
+/** Whether a composite is built from official scores, estimates, or both. */
+function compositeSource(report: GradeReport, c: CompositeResult): string | undefined {
+  const parts = report.scales.filter((s) => c.composite.scaleIds.includes(s.scale.id));
+  const official = parts.filter((s) => s.actual != null).length;
+  if (official === 0) return undefined;
+  return official === parts.length ? `official (est. ${c.estimate})` : `partly official (est. ${c.estimate})`;
+}
+
+/** e.g. "Estimates calibrated against 4 official scores (2 from this test)." */
+function calibrationNote(report: GradeReport): string {
+  const calibrated = report.scales.filter((s) => s.calibration);
+  if (!calibrated.length) return '';
+  const pooled = Math.max(...calibrated.map((s) => s.calibration!.pooled));
+  const test = Math.max(...calibrated.map((s) => s.calibration!.test));
+  return `Estimates are calibrated against ${pooled} official score${pooled === 1 ? '' : 's'} for the same Module 2 version${test ? ` (${test} from this test)` : ''}.`;
+}
+
 function exportCsv(report: GradeReport) {
   const rows = [['Section', 'Question', 'Result', 'Your Answer', 'Correct Answer', 'Domain', 'Skills']];
   for (const q of report.questions) {
@@ -388,6 +406,7 @@ export function ScoreReport({ report, studentName, onBack }: { report: GradeRepo
   const showAnswers = report.questions.some((q) => q.question.correct.length > 0 || q.response);
   const notes = [
     format.scoreNote ?? (report.scales.some((s) => s.scale.estimated) ? 'Scaled scores are estimates; official conversions vary by test form.' : ''),
+    calibrationNote(report),
     key.resultsOnly ? 'Graded from the results pasted from Bluebook, which counts unanswered questions as incorrect.' : '',
     ...report.notes,
     key.isDemo ? 'This report uses a placeholder demo answer key.' : '',
@@ -422,12 +441,22 @@ export function ScoreReport({ report, studentName, onBack }: { report: GradeRepo
         </div>
 
         <div className="tiles">
-          {primary && <ScoreTile hero label={primary.composite.name} value={primary.value} range={primary.range} min={primary.composite.min} max={primary.composite.max} />}
+          {primary && (
+            <ScoreTile hero label={primary.composite.name} value={primary.value} range={primary.range} min={primary.composite.min} max={primary.composite.max} sub={compositeSource(report, primary)} />
+          )}
           {report.scales.map((s) => (
-            <ScoreTile key={s.scale.id} label={s.scale.name} value={s.scaled} range={s.range} min={s.scale.min} max={s.scale.max} sub={`raw ${s.raw}/${s.maxRaw}`} />
+            <ScoreTile
+              key={s.scale.id}
+              label={s.scale.name}
+              value={s.scaled}
+              range={s.range}
+              min={s.scale.min}
+              max={s.scale.max}
+              sub={`raw ${s.raw}/${s.maxRaw}${s.actual != null ? ` · official (est. ${s.estimate})` : ''}`}
+            />
           ))}
           {otherComposites.map((c) => (
-            <ScoreTile key={c.composite.id} label={c.composite.name} value={c.value} range={c.range} min={c.composite.min} max={c.composite.max} />
+            <ScoreTile key={c.composite.id} label={c.composite.name} value={c.value} range={c.range} min={c.composite.min} max={c.composite.max} sub={compositeSource(report, c)} />
           ))}
         </div>
 

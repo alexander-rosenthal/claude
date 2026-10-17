@@ -388,6 +388,7 @@ export function examForBluebookResults(
     formatId: target.format.id,
     isDemo: false,
     resultsOnly: true,
+    sourceKeyId: target.key.id,
     entries,
   };
   return { exam: buildExam(target.format, key), warnings, notes, routing };
