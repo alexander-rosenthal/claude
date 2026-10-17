@@ -1,6 +1,20 @@
 import { parseRational } from './answers';
-import type { AnswerKey, Exam, ExamFormat, Question, QuestionType, Section } from './types';
+import type { AnswerKey, Exam, ExamFormat, Question, QuestionType, Section, Topic } from './types';
 import { questionId } from './types';
+
+/** Trim, drop empty and duplicate tags. */
+export function normalizeTopics(topics: Topic[] | undefined): Topic[] {
+  const seen = new Set<string>();
+  const out: Topic[] = [];
+  for (const t of topics ?? []) {
+    const topic = { skill: t.skill.trim(), subskill: (t.subskill ?? '').trim() };
+    const id = `${topic.skill}|${topic.subskill}`;
+    if (!topic.skill || seen.has(id)) continue;
+    seen.add(id);
+    out.push(topic);
+  }
+  return out;
+}
 
 export class AnswerKeyError extends Error {
   constructor(public problems: string[]) {
@@ -52,7 +66,7 @@ export function buildExam(format: ExamFormat, key: AnswerKey): Exam {
         choices: type === 'mc' ? choices : [],
         correct: type === 'mc' ? upper : correct,
         category: entry.category.trim() || 'Uncategorized',
-        subcategory: entry.subcategory.trim(),
+        topics: normalizeTopics(entry.topics),
       });
     }
     return { ...rest, questions };

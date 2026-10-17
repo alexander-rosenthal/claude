@@ -24,15 +24,42 @@ export interface Tally {
   accuracy: number;
 }
 
-export interface SubcategoryResult {
-  name: string;
-  tally: Tally;
+/**
+ * Mastery tiers for a topic's accuracy: ≥80% mastered, 50–79% for review,
+ * under 50% for instruction.
+ */
+export type Mastery = 'mastered' | 'review' | 'instruction';
+export const MASTERY_THRESHOLDS = { mastered: 0.8, review: 0.5 } as const;
+
+export function masteryOf(accuracy: number): Mastery {
+  if (accuracy >= MASTERY_THRESHOLDS.mastered) return 'mastered';
+  if (accuracy >= MASTERY_THRESHOLDS.review) return 'review';
+  return 'instruction';
 }
 
-export interface CategoryResult {
+export interface TopicResult {
   name: string;
   tally: Tally;
-  subcategories: SubcategoryResult[];
+  mastery: Mastery;
+  questions: QuestionResult[];
+}
+
+export interface SkillResult extends TopicResult {
+  /** Narrower subskills; questions tagged only at the skill level appear in none. */
+  subskills: TopicResult[];
+}
+
+/** A domain. Its questions are counted once; skills may overlap. */
+export interface CategoryResult extends TopicResult {
+  skills: SkillResult[];
+}
+
+/** How many topics (domains, skills and subskills) fall in each mastery tier. */
+export interface MasterySummary {
+  mastered: number;
+  review: number;
+  instruction: number;
+  total: number;
 }
 
 export interface SectionResult {
@@ -50,6 +77,7 @@ export interface ScaleResult {
   tally: Tally;
   sections: SectionResult[];
   categories: CategoryResult[];
+  mastery: MasterySummary;
 }
 
 export interface CompositeResult {
@@ -65,6 +93,8 @@ export interface GradeReport {
   scales: ScaleResult[];
   composites: CompositeResult[];
   overall: Tally;
+  /** Context to show with the scores (e.g. how a pasted result was matched). */
+  notes: string[];
 }
 
 function tally(results: QuestionResult[]): Tally {
@@ -86,15 +116,36 @@ function groupBy<T>(items: T[], key: (item: T) => string): Map<string, T[]> {
   return groups;
 }
 
+function topicResult(name: string, questions: QuestionResult[]): TopicResult {
+  const t = tally(questions);
+  return { name, tally: t, mastery: masteryOf(t.accuracy), questions };
+}
+
 function categoryBreakdown(results: QuestionResult[]): CategoryResult[] {
-  return [...groupBy(results, (r) => r.question.category)].map(([name, items]) => ({
-    name,
-    tally: tally(items),
-    subcategories: [...groupBy(items, (r) => r.question.subcategory)].map(([sub, subItems]) => ({
-      name: sub,
-      tally: tally(subItems),
-    })),
-  }));
+  return [...groupBy(results, (r) => r.question.category)].map(([name, items]) => {
+    const skillNames = [...new Set(items.flatMap((r) => r.question.topics.map((t) => t.skill)))];
+    const skills = skillNames.map((skill): SkillResult => {
+      const inSkill = items.filter((r) => r.question.topics.some((t) => t.skill === skill));
+      const subskillNames = [...new Set(inSkill.flatMap((r) => r.question.topics.filter((t) => t.skill === skill && t.subskill).map((t) => t.subskill)))];
+      return {
+        ...topicResult(skill, inSkill),
+        subskills: subskillNames.map((sub) =>
+          topicResult(sub, inSkill.filter((r) => r.question.topics.some((t) => t.skill === skill && t.subskill === sub))),
+        ),
+      };
+    });
+    return { ...topicResult(name, items), skills };
+  });
+}
+
+function masterySummary(categories: CategoryResult[]): MasterySummary {
+  const summary = { mastered: 0, review: 0, instruction: 0, total: 0 };
+  const topics = categories.filter((c) => c.name !== 'Uncategorized').flatMap((c) => [c, ...c.skills, ...c.skills.flatMap((s) => s.subskills)]);
+  for (const t of topics) {
+    summary[t.mastery]++;
+    summary.total++;
+  }
+  return summary;
 }
 
 /**
@@ -123,6 +174,7 @@ export function grade(exam: Exam, responses: Responses, outcomes: Outcomes = {})
     const sections = exam.sections.filter((s) => s.scaleId === scale.id);
     const inScale = questions.filter((q) => sections.some((s) => s.id === q.sectionId));
     const t = tally(inScale);
+    const categories = categoryBreakdown(inScale);
     return {
       scale,
       raw: t.correct,
@@ -134,7 +186,8 @@ export function grade(exam: Exam, responses: Responses, outcomes: Outcomes = {})
         section,
         tally: tally(inScale.filter((q) => q.sectionId === section.id)),
       })),
-      categories: categoryBreakdown(inScale),
+      categories,
+      mastery: masterySummary(categories),
     };
   });
 
@@ -145,5 +198,5 @@ export function grade(exam: Exam, responses: Responses, outcomes: Outcomes = {})
     return value == null ? [] : [{ composite, value, range: computeCompositeRange(composite, rangesById) }];
   });
 
-  return { exam, gradedAt: new Date(), questions, scales, composites, overall: tally(questions) };
+  return { exam, gradedAt: new Date(), questions, scales, composites, overall: tally(questions), notes: [] };
 }

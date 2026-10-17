@@ -3,7 +3,7 @@
  * real keys are imported. Answers and categories are generated from a fixed
  * seed, so the same demo key is produced on every load.
  */
-import type { AnswerKey, AnswerKeyEntry, ExamFormat } from '../core/types';
+import type { AnswerKey, AnswerKeyEntry, ExamFormat, Topic } from '../core/types';
 import { ACT_ENHANCED_FORMAT, ACT_LEGACY_FORMAT, SAT_FORMAT } from './formats';
 import { ACT_TAXONOMY, SAT_MATH_TAXONOMY, SAT_RW_TAXONOMY, type Taxonomy } from './taxonomy';
 
@@ -16,6 +16,13 @@ function rng(seed: number) {
 
 function pick<T>(rand: () => number, items: T[]): T {
   return items[Math.floor(rand() * items.length)];
+}
+
+/** One random (skill, subskill) tag from a domain. */
+function pickTopic(rand: () => number, skills: Record<string, string[]>): Topic[] {
+  const skill = pick(rand, Object.keys(skills));
+  const subskills = skills[skill];
+  return [{ skill, subskill: subskills.length ? pick(rand, subskills) : '' }];
 }
 
 /** SAT RW modules run in a fixed domain order; split 27 questions across it. */
@@ -43,7 +50,7 @@ function demoSat(): AnswerKey {
             number: n,
             correct: [pick(rand, section.choicesFor(n))],
             category,
-            subcategory: pick(rand, SAT_RW_TAXONOMY[category]),
+            topics: pickTopic(rand, SAT_RW_TAXONOMY[category]),
           });
         }
       }
@@ -58,7 +65,7 @@ function demoSat(): AnswerKey {
           number: n,
           correct: SPR_POSITIONS.has(n) ? [pick(rand, SPR_SAMPLES)] : [pick(rand, section.choicesFor(n))],
           category,
-          subcategory: pick(rand, SAT_MATH_TAXONOMY[category]),
+          topics: pickTopic(rand, SAT_MATH_TAXONOMY[category]),
         });
       }
     }
@@ -79,7 +86,7 @@ function demoAct(format: ExamFormat, seed: number): AnswerKey {
         number: n,
         correct: [pick(rand, section.choicesFor(n))],
         category,
-        subcategory: pick(rand, taxonomy[category]),
+        topics: pickTopic(rand, taxonomy[category]),
       });
     }
   }

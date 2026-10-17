@@ -2,7 +2,14 @@ import { useRef, useState } from 'react';
 import type { Exam, Responses } from '../core/types';
 import type { ParseResult } from '../parsers/collector';
 import { readRowsFromFile } from '../parsers/files';
-import { bluebookTargetExam, examForBluebookResults, looksLikeBluebook, parseBluebook } from '../parsers/bluebook';
+import {
+  bluebookTargetExam,
+  examForBluebookResults,
+  hasUsableDigitalKey,
+  looksLikeBluebook,
+  parseBluebook,
+  type BluebookGrading,
+} from '../parsers/bluebook';
 import { parsePastedResponses, responsesFromRows } from '../parsers/responses';
 
 interface Props {
@@ -42,28 +49,33 @@ export function ParseNotice({ result }: { result: ParseResult | null }) {
 
 interface PasteProps extends Props {
   /** A pasted Bluebook results table: already graded, ready for a report. */
-  onResults: (exam: Exam, result: ParseResult) => void;
+  onResults: (grading: BluebookGrading, result: ParseResult) => void;
 }
 
 export function PastePanel({ exam, onLoad, onResults }: PasteProps) {
   const [text, setText] = useState('');
   const [result, setResult] = useState<ParseResult | null>(null);
-  const [pending, setPending] = useState<{ exam: Exam; result: ParseResult } | null>(null);
+  const [pending, setPending] = useState<{ grading: BluebookGrading; result: ParseResult } | null>(null);
+  const [sameModule2, setSameModule2] = useState(false);
   const isSat = exam.family === 'SAT';
+  const keyCanEnrich = hasUsableDigitalKey(exam);
 
   const load = () => {
     setPending(null);
     if (isSat && looksLikeBluebook(text)) {
       const target = bluebookTargetExam(exam);
-      const r = parseBluebook(target, text);
-      setResult(r);
-      if (r.outcomes) {
-        const gradeWith = examForBluebookResults(target, r);
+      const parsed = parseBluebook(target, text);
+      if (parsed.outcomes) {
+        const grading = examForBluebookResults(target, parsed, sameModule2);
+        const r = { ...parsed, warnings: [...parsed.warnings, ...grading.warnings] };
+        setResult(r);
         // Go straight to the report unless there's something to read first.
-        if (r.warnings.length) setPending({ exam: gradeWith, result: r });
-        else onResults(gradeWith, r);
+        if (r.warnings.length) setPending({ grading, result: r });
+        else onResults(grading, r);
         return;
       }
+      const r = parsed;
+      setResult(r);
       if (target === exam && r.answered) onLoad(r.responses);
       return;
     }
@@ -103,6 +115,12 @@ export function PastePanel({ exam, onLoad, onResults }: PasteProps) {
         <li>Rows copied from a spreadsheet (Section, Question, Answer)</li>
       </ul>
       <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder={`${exam.sections[0].name}\n1 A\n2 C\n…`} />
+      {keyCanEnrich && (
+        <label className="row small secondary" style={{ marginTop: 8, gap: 6 }}>
+          <input type="checkbox" checked={sameModule2} onChange={(e) => setSameModule2(e.target.checked)} />
+          For a Bluebook paste: the student got the same adaptive Module 2 as “{exam.name}” (use its Module 2 skills and answers)
+        </label>
+      )}
       <div className="row" style={{ marginTop: 8 }}>
         <button className="btn primary" disabled={!text.trim()} onClick={load}>
           Load answers
@@ -111,7 +129,7 @@ export function PastePanel({ exam, onLoad, onResults }: PasteProps) {
       </div>
       <ParseNotice result={result} />
       {pending && (
-        <button className="btn primary" onClick={() => onResults(pending.exam, pending.result)}>
+        <button className="btn primary" onClick={() => onResults(pending.grading, pending.result)}>
           View score report →
         </button>
       )}

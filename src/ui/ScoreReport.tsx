@@ -1,28 +1,51 @@
-import { Fragment, useMemo, useState } from 'react';
-import type { CategoryResult, GradeReport, QuestionResult, QuestionStatus, ScaleResult, Tally } from '../core/grader';
+import { useMemo, useState } from 'react';
+import {
+  MASTERY_THRESHOLDS,
+  type CategoryResult,
+  type GradeReport,
+  type Mastery,
+  type MasterySummary,
+  type QuestionResult,
+  type QuestionStatus,
+  type ScaleResult,
+  type TopicResult,
+} from '../core/grader';
 import type { ScoreRange } from '../core/scoring';
+import type { Exam, Topic } from '../core/types';
 import { downloadText, rowsToCsv } from '../parsers/files';
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 
 const STATUS_LABEL: Record<QuestionStatus, string> = { correct: 'Correct', incorrect: 'Incorrect', omitted: 'Omitted' };
 
-function StackBar({ tally, label }: { tally: Tally; label: string }) {
-  const parts: [QuestionStatus, number][] = (
-    [
-      ['correct', tally.correct],
-      ['incorrect', tally.incorrect],
-      ['omitted', tally.omitted],
-    ] as [QuestionStatus, number][]
-  ).filter(([, n]) => n > 0);
-  const tip = `${label}\nCorrect ${tally.correct} · Incorrect ${tally.incorrect} · Omitted ${tally.omitted}`;
-  return (
-    <div className="stack" data-tip={tip} role="img" aria-label={tip.replace('\n', ': ')}>
-      {parts.map(([status, n]) => (
-        <span key={status} className={`sw-${status}`} style={{ flex: n }} />
-      ))}
-    </div>
-  );
+const MASTERY_LABEL: Record<Mastery, string> = {
+  mastered: 'Mastered',
+  review: 'For review',
+  instruction: 'For instruction',
+};
+
+const MASTERY_RANGE: Record<Mastery, string> = {
+  mastered: `≥${MASTERY_THRESHOLDS.mastered * 100}%`,
+  review: `${MASTERY_THRESHOLDS.review * 100}–${MASTERY_THRESHOLDS.mastered * 100 - 1}%`,
+  instruction: `<${MASTERY_THRESHOLDS.review * 100}%`,
+};
+
+const topicLabel = (t: Topic) => (t.subskill ? `${t.skill} › ${t.subskill}` : t.skill);
+
+/** "1.14" = Module 1, question 14 (the section's position within its score scale). */
+function questionRef(exam: Exam, q: QuestionResult): string {
+  const section = exam.sections.find((s) => s.id === q.sectionId)!;
+  const group = exam.sections.filter((s) => s.scaleId === section.scaleId);
+  return group.length > 1 ? `${group.indexOf(section) + 1}.${q.question.number}` : String(q.question.number);
+}
+
+function questionTip(exam: Exam, q: QuestionResult, showAnswers: boolean) {
+  const section = exam.sections.find((s) => s.id === q.sectionId)!;
+  const lines = [`${section.shortName} #${q.question.number} · ${STATUS_LABEL[q.status]}`];
+  if (showAnswers) lines.push(`Your answer: ${q.response ?? '—'}`, `Correct: ${q.question.correct.join(' or ') || '—'}`);
+  if (q.question.category !== 'Uncategorized') lines.push(q.question.category);
+  for (const t of q.question.topics) lines.push(`· ${topicLabel(t)}`);
+  return lines.join('\n');
 }
 
 function Legend() {
@@ -66,78 +89,110 @@ function ScoreTile({ label, value, range, min, max, sub, hero }: TileProps) {
   );
 }
 
-/** Subcategories worth listing: skip a lone unnamed one. */
-function namedSubcategories(c: CategoryResult) {
-  return c.subcategories.some((s) => s.name) ? c.subcategories : [];
+// ---------------------------------------------------------------------------
+// Skills: domain → skill → subskill with mastery tiers
+// ---------------------------------------------------------------------------
+
+function MasteryBadge({ topic }: { topic: TopicResult }) {
+  return (
+    <span className={`badge m-${topic.mastery}`} title={`${MASTERY_LABEL[topic.mastery]} (${MASTERY_RANGE[topic.mastery]})`}>
+      {pct(topic.tally.accuracy)}
+    </span>
+  );
 }
 
-function CategoryTable({ categories }: { categories: CategoryResult[] }) {
-  const [open, setOpen] = useState<Record<string, boolean>>({});
-  const sorted = [...categories].sort((a, b) => a.tally.accuracy - b.tally.accuracy);
+function QuestionChips({ exam, questions, showAnswers }: { exam: Exam; questions: QuestionResult[]; showAnswers: boolean }) {
+  // Missed first, then correct, each in test order.
+  const missed = questions.filter((q) => q.status !== 'correct');
+  const correct = questions.filter((q) => q.status === 'correct');
   return (
-    <div className="table-scroll">
-      <table className="data">
-        <thead>
-          <tr>
-            <th>Category</th>
-            <th className="r">Correct</th>
-            <th className="r">Accuracy</th>
-            <th style={{ width: '38%' }}>Breakdown</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((c) => (
-            <Fragment key={c.name}>
-              <tr>
-                <td>
-                  {namedSubcategories(c).length ? (
-                    <button className="btn link" onClick={() => setOpen((o) => ({ ...o, [c.name]: !o[c.name] }))} aria-expanded={!!open[c.name]}>
-                      {open[c.name] ? '▾' : '▸'} {c.name}
-                    </button>
-                  ) : (
-                    c.name
-                  )}
-                </td>
-                <td className="r">
-                  {c.tally.correct}/{c.tally.total}
-                </td>
-                <td className="r">{pct(c.tally.accuracy)}</td>
-                <td>
-                  <StackBar tally={c.tally} label={c.name} />
-                </td>
-              </tr>
-              {open[c.name] &&
-                [...namedSubcategories(c)]
-                  .sort((a, b) => a.tally.accuracy - b.tally.accuracy)
-                  .map((s) => (
-                    <tr key={s.name} className="sub">
-                      <td>{s.name || <span className="muted">Not specified</span>}</td>
-                      <td className="r">
-                        {s.tally.correct}/{s.tally.total}
-                      </td>
-                      <td className="r">{pct(s.tally.accuracy)}</td>
-                      <td>
-                        <StackBar tally={s.tally} label={s.name} />
-                      </td>
-                    </tr>
-                  ))}
-            </Fragment>
-          ))}
-        </tbody>
-      </table>
+    <span className="chips">
+      {[...missed, ...correct].map((q) => (
+        <span
+          key={q.question.id}
+          className={`chip sw-${q.status} ${q.status}`}
+          data-tip={questionTip(exam, q, showAnswers)}
+          aria-label={`${questionRef(exam, q)} ${STATUS_LABEL[q.status]}`}
+        >
+          {questionRef(exam, q)}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function TopicRow({ topic, level, exam, chips, showAnswers }: { topic: TopicResult; level: 0 | 1 | 2; exam: Exam; chips: boolean; showAnswers: boolean }) {
+  return (
+    <div className={`topic-row level-${level}`}>
+      <MasteryBadge topic={topic} />
+      <span className="topic-name">{topic.name}</span>
+      {chips && <QuestionChips exam={exam} questions={topic.questions} showAnswers={showAnswers} />}
+      <span className="topic-count num">
+        {topic.tally.correct} of {topic.tally.total}
+      </span>
     </div>
   );
 }
 
-function questionTip(q: QuestionResult, showAnswers: boolean) {
-  const lines = [`#${q.question.number} · ${STATUS_LABEL[q.status]}`];
-  if (showAnswers) lines.push(`Your answer: ${q.response ?? '—'}`, `Correct: ${q.question.correct.join(' or ') || '—'}`);
-  if (q.question.category !== 'Uncategorized') lines.push(q.question.category);
-  if (q.question.subcategory) lines.push(q.question.subcategory);
-  return lines.join('\n');
+const byAccuracy = <T extends TopicResult>(items: T[]) => [...items].sort((a, b) => a.tally.accuracy - b.tally.accuracy);
+
+function MasteryStrip({ summary }: { summary: MasterySummary }) {
+  return (
+    <div className="mastery-strip">
+      {(['mastered', 'review', 'instruction'] as Mastery[]).map((m) => (
+        <span key={m} className="mastery-item">
+          <span className={`badge m-${m}`}>{summary[m]}</span>
+          <span>
+            {MASTERY_LABEL[m]} <span className="muted small">{MASTERY_RANGE[m]}</span>
+          </span>
+        </span>
+      ))}
+      <span className="muted small">{summary.total} topics</span>
+    </div>
+  );
 }
 
-function ScaleSection({ result, questions, showAnswers }: { result: ScaleResult; questions: QuestionResult[]; showAnswers: boolean }) {
+function SkillsBreakdown({ exam, categories, summary, showAnswers }: { exam: Exam; categories: CategoryResult[]; summary: MasterySummary; showAnswers: boolean }) {
+  const hasSkills = categories.some((c) => c.skills.length > 0);
+  const untagged = hasSkills && categories.some((c) => c.questions.some((q) => q.question.topics.length === 0));
+  return (
+    <>
+      <div className="card-head" style={{ marginBottom: 8 }}>
+        <h3>{hasSkills ? 'Strengths and weaknesses' : 'By domain'} (weakest first)</h3>
+        <span className="spacer" />
+        <MasteryStrip summary={summary} />
+      </div>
+      <div className="topics">
+        {byAccuracy(categories).map((c) => (
+          <div className="topic-block" key={c.name}>
+            {/* Domains show question chips only when there are no skills to carry them. */}
+            <TopicRow topic={c} level={0} exam={exam} chips={c.skills.length === 0} showAnswers={showAnswers} />
+            {byAccuracy(c.skills).map((s) => (
+              <div key={s.name}>
+                <TopicRow topic={s} level={1} exam={exam} chips showAnswers={showAnswers} />
+                {byAccuracy(s.subskills).map((sub) => (
+                  <TopicRow key={sub.name} topic={sub} level={2} exam={exam} chips showAnswers={showAnswers} />
+                ))}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+      {hasSkills && (
+        <p className="muted small" style={{ margin: '8px 0 0' }}>
+          Question chips read module.question (1.14 = Module 1, question 14), missed first. A question can count toward more than one skill
+          {untagged ? '; questions without skill tags count only toward their domain' : ''}.
+        </p>
+      )}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Score scale card
+// ---------------------------------------------------------------------------
+
+function ScaleSection({ exam, result, questions, showAnswers }: { exam: Exam; result: ScaleResult; questions: QuestionResult[]; showAnswers: boolean }) {
   const categorized = result.categories.some((c) => c.name !== 'Uncategorized');
   const score = result.range && result.range.lower !== result.range.upper ? `${result.range.lower}–${result.range.upper}` : result.scaled;
   return (
@@ -152,7 +207,7 @@ function ScaleSection({ result, questions, showAnswers }: { result: ScaleResult;
       </div>
 
       <h3 style={{ marginBottom: 6 }}>By section</h3>
-      <div className="table-scroll" style={{ marginBottom: 16 }}>
+      <div className="table-scroll" style={{ marginBottom: 20 }}>
         <table className="data">
           <thead>
             <tr>
@@ -185,7 +240,7 @@ function ScaleSection({ result, questions, showAnswers }: { result: ScaleResult;
                         <span
                           key={q.question.id}
                           className={`qcell sw-${q.status} ${q.status}`}
-                          data-tip={questionTip(q, showAnswers)}
+                          data-tip={questionTip(exam, q, showAnswers)}
                           aria-label={`Question ${q.question.number} ${STATUS_LABEL[q.status]}`}
                         >
                           {q.question.number}
@@ -199,26 +254,32 @@ function ScaleSection({ result, questions, showAnswers }: { result: ScaleResult;
         </table>
       </div>
 
-      <h3 style={{ marginBottom: 6 }}>By category (weakest first)</h3>
       {categorized ? (
-        <CategoryTable categories={result.categories} />
+        <SkillsBreakdown exam={exam} categories={result.categories} summary={result.mastery} showAnswers={showAnswers} />
       ) : (
-        <p className="muted small" style={{ margin: 0 }}>
-          This answer key has no question categories. Import a key with Category and Subcategory columns to see this breakdown.
-        </p>
+        <>
+          <h3 style={{ marginBottom: 6 }}>By domain</h3>
+          <p className="muted small" style={{ margin: 0 }}>
+            This answer key has no question categories. Import a key with Domain, Skill and Subskill columns to see this breakdown.
+          </p>
+        </>
       )}
     </section>
   );
 }
 
+// ---------------------------------------------------------------------------
+// Question detail
+// ---------------------------------------------------------------------------
+
 type Filter = 'all' | 'incorrect' | 'missed' | 'omitted';
 
 function QuestionTable({ report, showAnswers }: { report: GradeReport; showAnswers: boolean }) {
-  const showSub = report.questions.some((q) => q.question.subcategory);
-  const columns = 4 + (showAnswers ? 2 : 0) + (showSub ? 1 : 0);
   const [filter, setFilter] = useState<Filter>('missed');
   const [category, setCategory] = useState('');
   const categories = useMemo(() => [...new Set(report.questions.map((q) => q.question.category))], [report]);
+  const showSkills = report.questions.some((q) => q.question.topics.length);
+  const columns = 4 + (showAnswers ? 2 : 0) + (showSkills ? 1 : 0);
 
   const rows = report.questions.filter((q) => {
     if (category && q.question.category !== category) return false;
@@ -241,8 +302,8 @@ function QuestionTable({ report, showAnswers }: { report: GradeReport; showAnswe
             <option value="omitted">Omitted only</option>
             <option value="all">All questions</option>
           </select>
-          <select value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category filter">
-            <option value="">All categories</option>
+          <select value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Domain filter">
+            <option value="">All domains</option>
             {categories.map((c) => (
               <option key={c}>{c}</option>
             ))}
@@ -258,8 +319,8 @@ function QuestionTable({ report, showAnswers }: { report: GradeReport; showAnswe
               <th>Result</th>
               {showAnswers && <th>Your answer</th>}
               {showAnswers && <th>Correct</th>}
-              <th>Category</th>
-              {showSub && <th className="hide-sm">Subcategory</th>}
+              <th>Domain</th>
+              {showSkills && <th className="hide-sm">Skills</th>}
             </tr>
           </thead>
           <tbody>
@@ -281,7 +342,13 @@ function QuestionTable({ report, showAnswers }: { report: GradeReport; showAnswe
                 )}
                 {showAnswers && <td className="num">{q.question.correct.join(' or ') || <span className="muted">—</span>}</td>}
                 <td>{q.question.category}</td>
-                {showSub && <td className="hide-sm secondary">{q.question.subcategory}</td>}
+                {showSkills && (
+                  <td className="hide-sm secondary">
+                    {q.question.topics.map((t) => (
+                      <div key={topicLabel(t)}>{topicLabel(t)}</div>
+                    ))}
+                  </td>
+                )}
               </tr>
             ))}
             {rows.length === 0 && (
@@ -299,9 +366,17 @@ function QuestionTable({ report, showAnswers }: { report: GradeReport; showAnswe
 }
 
 function exportCsv(report: GradeReport) {
-  const rows = [['Section', 'Question', 'Result', 'Your Answer', 'Correct Answer', 'Category', 'Subcategory']];
+  const rows = [['Section', 'Question', 'Result', 'Your Answer', 'Correct Answer', 'Domain', 'Skills']];
   for (const q of report.questions) {
-    rows.push([q.sectionName, String(q.question.number), STATUS_LABEL[q.status], q.response ?? '', q.question.correct.join(' or '), q.question.category, q.question.subcategory]);
+    rows.push([
+      q.sectionName,
+      String(q.question.number),
+      STATUS_LABEL[q.status],
+      q.response ?? '',
+      q.question.correct.join(' or '),
+      q.question.category,
+      q.question.topics.map(topicLabel).join('; '),
+    ]);
   }
   downloadText(`${report.exam.name.replace(/[^\w]+/g, '-')}-results.csv`, rowsToCsv(rows));
 }
@@ -312,7 +387,8 @@ export function ScoreReport({ report, studentName, onBack }: { report: GradeRepo
   const showAnswers = report.questions.some((q) => q.question.correct.length > 0 || q.response);
   const notes = [
     format.scoreNote ?? (report.scales.some((s) => s.scale.estimated) ? 'Scaled scores are estimates; official conversions vary by test form.' : ''),
-    key.resultsOnly ? 'Graded from the results pasted from Bluebook.' : '',
+    key.resultsOnly ? 'Graded from the results pasted from Bluebook, which counts unanswered questions as incorrect.' : '',
+    ...report.notes,
     key.isDemo ? 'This report uses a placeholder demo answer key.' : '',
   ].filter(Boolean);
 
@@ -337,7 +413,7 @@ export function ScoreReport({ report, studentName, onBack }: { report: GradeRepo
             <h1>{studentName ? `${studentName} · ` : ''}Score Report</h1>
             <div className="secondary">{report.exam.name}</div>
           </div>
-          <div className="muted small num" style={{ textAlign: 'right' }}>
+          <div className="muted small num report-meta">
             {report.gradedAt.toLocaleString()}
             <br />
             {report.overall.correct}/{report.overall.total} correct · {report.overall.incorrect} incorrect · {report.overall.omitted} omitted
@@ -362,7 +438,7 @@ export function ScoreReport({ report, studentName, onBack }: { report: GradeRepo
       </section>
 
       {report.scales.map((s) => (
-        <ScaleSection key={s.scale.id} result={s} questions={report.questions} showAnswers={showAnswers} />
+        <ScaleSection key={s.scale.id} exam={report.exam} result={s} questions={report.questions} showAnswers={showAnswers} />
       ))}
 
       <QuestionTable report={report} showAnswers={showAnswers} />

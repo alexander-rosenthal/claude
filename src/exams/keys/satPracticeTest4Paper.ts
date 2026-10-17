@@ -25,7 +25,7 @@ const entries: AnswerKeyEntry[] = Object.entries(ANSWERS).flatMap(([sectionId, a
     number: i + 1,
     correct: answer.split(';').map((a) => a.trim()),
     category: '',
-    subcategory: '',
+    topics: [],
   })),
 );
 

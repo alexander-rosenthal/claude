@@ -47,13 +47,14 @@ export const SAT_PT4_PAPER_MATH_TABLE = rangeTable([
   [54, 790, 800],
 ]);
 
-function satSections(rwCount: number, mathCount: number): SectionFormat[] {
+function satSections(rwCount: number, mathCount: number, adaptive: boolean): SectionFormat[] {
   const rw = [1, 2].map((m) => ({
     id: `rw${m}`,
     name: `Reading and Writing — Module ${m}`,
     shortName: `RW ${m}`,
     aliases: [`rw${m}`, `rw m${m}`, `reading and writing module ${m}`, `reading writing module ${m}`, `rw module ${m}`, `english module ${m}`],
     questionCount: rwCount,
+    adaptive: adaptive && m === 2,
     scaleId: 'rw',
     choicesFor: always(ABCD),
     allowsSpr: false,
@@ -65,6 +66,7 @@ function satSections(rwCount: number, mathCount: number): SectionFormat[] {
     shortName: `Math ${m}`,
     aliases: [`math${m}`, `m${m}`, `math m${m}`, `math module ${m}`],
     questionCount: mathCount,
+    adaptive: adaptive && m === 2,
     scaleId: 'math',
     choicesFor: always(ABCD),
     allowsSpr: true,
@@ -86,7 +88,7 @@ export const SAT_FORMAT: ExamFormat = {
   id: 'sat-digital',
   family: 'SAT',
   name: 'Digital SAT (Bluebook)',
-  sections: satSections(27, 22),
+  sections: satSections(27, 22, true),
   scales: [
     { id: 'rw', name: 'Reading and Writing', min: 200, max: 800, step: 10, estimated: true, anchors: anchorsFromRangeTable(SAT_PT4_PAPER_RW_TABLE, 66, 54) },
     { id: 'math', name: 'Math', min: 200, max: 800, step: 10, estimated: true, anchors: anchorsFromRangeTable(SAT_PT4_PAPER_MATH_TABLE, 54, 44) },
@@ -105,7 +107,7 @@ export const SAT_PAPER_FORMAT: ExamFormat = {
   id: 'sat-paper',
   family: 'SAT',
   name: 'Digital SAT — paper version',
-  sections: satSections(33, 27),
+  sections: satSections(33, 27, false),
   scales: [
     { id: 'rw', name: 'Reading and Writing', min: 200, max: 800, step: 10, estimated: false, anchors: [], ranges: SAT_PT4_PAPER_RW_TABLE },
     { id: 'math', name: 'Math', min: 200, max: 800, step: 10, estimated: false, anchors: [], ranges: SAT_PT4_PAPER_MATH_TABLE },

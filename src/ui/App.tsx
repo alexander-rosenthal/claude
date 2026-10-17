@@ -128,7 +128,7 @@ export function App() {
           <BubbleSheet key={exam.id} exam={exam} responses={responses} onChange={(id, v) => setResponses((r) => ({ ...r, [id]: v }))} />
         )}
         {tab === 'paste' && (
-          <PastePanel exam={exam} onLoad={setResponses} onResults={(graded, r) => setReport(grade(graded, r.responses, r.outcomes))} />
+          <PastePanel exam={exam} onLoad={setResponses} onResults={(g, r) => setReport({ ...grade(g.exam, r.responses, r.outcomes), notes: g.notes })} />
         )}
         {tab === 'upload' && <UploadPanel exam={exam} onLoad={setResponses} />}
         {tab === 'key' && <KeyImport onImported={importKey} />}

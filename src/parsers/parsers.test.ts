@@ -103,7 +103,7 @@ describe('Bluebook paste', () => {
     it('grades from the pasted outcomes', () => {
       const target = bluebookTargetExam(sat);
       const result = parseBluebook(target, pt4Results);
-      const exam = examForBluebookResults(target, result);
+      const { exam } = examForBluebookResults(target, result);
       expect(exam.key.resultsOnly).toBe(true);
       const report = grade(exam, result.responses, result.outcomes);
       const [rw, math] = report.scales;
@@ -117,7 +117,7 @@ describe('Bluebook paste', () => {
     });
 
     it('reads against the digital layout even when the paper key is selected', () => {
-      const paper = OFFICIAL_EXAMS[0];
+      const paper = OFFICIAL_EXAMS.find((e) => e.format.id === 'sat-paper')!;
       expect(paper.format.id).toBe('sat-paper');
       const result = parsePastedResponses(paper, pt4Results);
       expect(result.outcomes!['math2-22']).toBe('incorrect');
@@ -130,10 +130,29 @@ describe('Bluebook paste', () => {
       expect(result.warnings).toEqual([]);
     });
 
-    it('cross-checks domains against a real digital key', () => {
-      const result = parseBluebook(realSat, pt4Results);
-      expect(examForBluebookResults(realSat, result)).toBe(realSat);
-      expect(result.warnings.join(' ')).toMatch(/domains differ/);
+    describe('with the tagged Practice Test 4 key selected', () => {
+      const pt4 = OFFICIAL_EXAMS.find((e) => e.key.id === 'sat-pt4-bluebook')!;
+      const result = parseBluebook(pt4, pt4Results);
+
+      it('adds Module 1 skills and answers but leaves the adaptive Module 2 alone', () => {
+        const { exam, warnings, notes } = examForBluebookResults(pt4, result);
+        expect(warnings).toEqual([]);
+        expect(notes.join(' ')).toMatch(/Module 2 is adaptive/);
+        const q = (id: string) => exam.sections.flatMap((s) => s.questions).find((x) => x.id === id)!;
+        expect(q('rw1-1').topics).toEqual([{ skill: 'Vocabulary in Context', subskill: 'Sentence Completion' }]);
+        expect(q('rw1-1').correct).toEqual(['B']);
+        expect(q('rw2-1').topics).toEqual([]);
+        expect(q('rw2-1').correct).toEqual([]);
+        expect(q('rw2-1').category).toBe('Craft and Structure'); // from the paste
+        const report = grade(exam, result.responses, result.outcomes);
+        expect(report.scales.map((s) => s.raw)).toEqual([18, 15]);
+      });
+
+      it('warns when the claimed Module 2 does not match the paste', () => {
+        const { warnings } = examForBluebookResults(pt4, result, true);
+        expect(warnings).toHaveLength(1);
+        expect(warnings[0]).toMatch(/Math — Module 2: .* 14 of 22/);
+      });
     });
   });
 
@@ -213,7 +232,41 @@ describe('answer key import', () => {
     );
     const { key } = answerKeyFromRows(SAT_FORMAT, rows, 'x');
     expect(key!.entries.map((e) => `${e.sectionId}-${e.number}`)).toEqual(['math1-1', 'math1-2', 'math2-1']);
-    expect(key!.entries[0].subcategory).toBe('Linear functions');
+    expect(key!.entries[0].topics).toEqual([{ skill: 'Linear functions', subskill: '' }]);
+  });
+
+  it('collects several skill tags per question', () => {
+    const rows = parseDelimited(
+      [
+        'Section,Question,Answer,Domain,Skill,Subskill',
+        'RW1,15,D,Standard English Conventions,Punctuation,Multiple Issues',
+        'RW1,15,,,Form Structure and Sense,Run-on Issue',
+        'RW1,16,A,Standard English Conventions,Punctuation; Form Structure and Sense,Apostrophe Issue; Verb Tense Issue',
+        'RW1,17,B,Standard English Conventions,Punctuation,',
+      ].join('\n'),
+    );
+    const { key, errors } = answerKeyFromRows(SAT_FORMAT, rows, 'x');
+    expect(errors).toEqual([]);
+    expect(key!.entries).toHaveLength(3);
+    expect(key!.entries[0]).toMatchObject({
+      number: 15,
+      correct: ['D'],
+      category: 'Standard English Conventions',
+      topics: [
+        { skill: 'Punctuation', subskill: 'Multiple Issues' },
+        { skill: 'Form Structure and Sense', subskill: 'Run-on Issue' },
+      ],
+    });
+    expect(key!.entries[1].topics).toEqual([
+      { skill: 'Punctuation', subskill: 'Apostrophe Issue' },
+      { skill: 'Form Structure and Sense', subskill: 'Verb Tense Issue' },
+    ]);
+    expect(key!.entries[2].topics).toEqual([{ skill: 'Punctuation', subskill: '' }]);
+  });
+
+  it('rejects a repeated question with a conflicting answer', () => {
+    const rows = parseDelimited('Section,Question,Answer\nRW1,1,A\nRW1,1,B');
+    expect(answerKeyFromRows(SAT_FORMAT, rows, 'x').errors[0]).toMatch(/different answer/);
   });
 
   it('rejects unknown sections', () => {

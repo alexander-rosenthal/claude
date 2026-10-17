@@ -1,5 +1,5 @@
 import { normalizeResponse } from '../core/answers';
-import type { Exam, Outcomes, Question, Responses, Section } from '../core/types';
+import type { Exam, Outcomes, Question, Responses, Section, Topic } from '../core/types';
 import { resolveSectionLabel } from './sections';
 
 export interface ParseResult {
@@ -14,8 +14,8 @@ export interface ParseResult {
   outcomes?: Outcomes;
   /** Category (Bluebook "Domain") per question, when the paste lists it. */
   categories?: Record<string, string>;
-  /** Subcategory (skill) per question, when the paste lists it. */
-  subcategories?: Record<string, string>;
+  /** Skill tags per question, when the paste lists them. */
+  topics?: Record<string, Topic[]>;
 }
 
 /**

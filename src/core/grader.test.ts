@@ -5,6 +5,7 @@ import { AnswerKeyError, buildExam } from './exam';
 import { grade } from './grader';
 import { toScaled } from './scoring';
 import type { Exam, Responses } from './types';
+import sampleResponses from '../parsers/fixtures/pt4-bluebook-sample-responses.json';
 
 const sat = DEMO_EXAMS.find((e) => e.family === 'SAT')!;
 const act = DEMO_EXAMS.find((e) => e.format.id === 'act-enhanced')!;
@@ -40,7 +41,8 @@ describe('grade', () => {
     const catTotal = rw.categories.reduce((n, c) => n + c.tally.total, 0);
     expect(catTotal).toBe(54);
     for (const c of rw.categories) {
-      expect(c.subcategories.reduce((n, s) => n + s.tally.total, 0)).toBe(c.tally.total);
+      // Every question of the demo key has exactly one skill tag.
+      expect(c.skills.reduce((n, s) => n + s.tally.total, 0)).toBe(c.tally.total);
     }
     const missed = report.questions.find((r) => r.question.id === q1.id)!;
     expect(missed.status).toBe('incorrect');
@@ -103,6 +105,138 @@ describe('SAT Practice Test 4 (paper, official key)', () => {
   });
 });
 
+describe('SAT Practice Test 4 (Bluebook) skills', () => {
+  // A sample student's answers (from a third-party report for this test) and
+  // every "correct of total" figure that report gives for them.
+  const pt4 = OFFICIAL_EXAMS.find((e) => e.key.id === 'sat-pt4-bluebook')!;
+  const responses: Responses = {};
+  for (const [sectionId, answers] of Object.entries(sampleResponses)) {
+    answers.split(' ').forEach((a, i) => (responses[`${sectionId}-${i + 1}`] = a));
+  }
+  const report = grade(pt4, responses);
+  const [rw, math] = report.scales;
+
+  const rows = (scale: typeof rw) =>
+    Object.fromEntries(
+      scale.categories.flatMap((c) => [c, ...c.skills, ...c.skills.flatMap((s) => s.subskills)]).map((t) => [t.name, `${t.tally.correct}/${t.tally.total}`]),
+    );
+
+  it('matches the reference section scores', () => {
+    expect(rw.sections.map((s) => s.tally.correct)).toEqual([19, 17]);
+    expect(math.sections.map((s) => s.tally.correct)).toEqual([18, 11]);
+    expect([rw.raw, math.raw]).toEqual([36, 29]);
+  });
+
+  it('matches every Reading and Writing topic figure', () => {
+    expect(rows(rw)).toEqual({
+      'Craft and Structure': '10/15',
+      'Purpose/Function of Text': '3/4',
+      'Full Text Purpose (Author Intention)': '1/2',
+      'Sentence Purpose': '2/2',
+      'Cross-Text Connections': '1/1',
+      'Compare/Contrast': '1/1',
+      'Vocabulary in Context': '6/10',
+      'Sentence Completion': '5/9',
+      'Most Nearly Means': '1/1',
+      'Standard English Conventions': '7/14',
+      Punctuation: '5/8',
+      'Apostrophe Issue': '1/1',
+      'Multiple Issues': '4/6',
+      'Comma Issue': '0/1',
+      'Form, Structure, and Sense': '4/8',
+      'Run-on Issue': '3/4',
+      'Verb Tense Issue': '1/4',
+      'Subject-Verb Agreement Issue': '0/2',
+      'Expression of Ideas': '7/11',
+      'Logical Transition': '2/4',
+      'Logical Transition Issue': '2/4',
+      'Rhetorical Synthesis': '5/7',
+      'Relevance Issue': '4/6',
+      'Tone or Emphasis': '1/1',
+      'Information and Ideas': '12/14',
+      Evidence: '4/5',
+      'Quantitative Evidence': '3/3',
+      'Textual Evidence': '1/2',
+      Ideas: '3/3',
+      'Main Idea': '2/2',
+      Detail: '1/1',
+      Inferences: '4/4',
+      'Inference Question': '4/4',
+      Reasoning: '2/4',
+      'Support/Refute a Claim': '2/4',
+    });
+  });
+
+  it('matches every Math topic figure', () => {
+    expect(rows(math)).toEqual({
+      'Problem-Solving and Data Analysis': '8/13',
+      'One-Variable Data': '1/3',
+      'Distributions: Measures of Center and Spread': '1/3',
+      Percentages: '2/3',
+      'Proportional Relationships': '3/4',
+      Proportions: '0/1',
+      Rates: '2/2',
+      'Unit Conversions': '1/1',
+      'Data Visualization': '1/2',
+      'Charts and Graphs': '1/2',
+      'Two-Variable Data': '1/2',
+      'Applying a Model': '0/1',
+      'Scatterplots and Line of Best Fit': '1/1',
+      'Advanced Math': '8/11',
+      'Nonlinear Functions': '3/4',
+      'Quadratic Function Graphs': '1/1',
+      'Nonlinear Equations/Expressions': '8/11',
+      'Exponents and Roots': '1/1',
+      'Solving Nonlinear Equations': '1/2',
+      'Manipulating Other Nonlinear Equations/Expressions': '3/4',
+      'Interpreting Nonlinear Equations/Expressions': '1/1',
+      'Absolute Value': '0/1',
+      'Systems of Nonlinear Equations in Two Variables': '1/1',
+      'Manipulating Quadratic Equations/Expressions': '1/2',
+      'Geometry and Trigonometry': '4/6',
+      Geometry: '4/6',
+      'Area, Surface Area, and Volume': '0/1',
+      'Perimeter and Area': '1/1',
+      'Equation of a Circle': '0/1',
+      Angles: '1/1',
+      Similarity: '3/3',
+      Quadrilaterals: '1/1',
+      Trigonometry: '2/2',
+      'Trig Functions': '1/1',
+      'Right Triangle Trigonometry': '2/2',
+      Algebra: '9/14',
+      'Linear Equations in One Variable': '1/3',
+      'Solving for an Expression': '0/1',
+      'Manipulating Linear Equations/Expressions': '1/3',
+      'Linear Equations in Two Variables': '1/2',
+      'Solving Linear Equations in Two Variables': '0/1',
+      'Linear Functions': '2/4',
+      'Graphs of Linear Functions': '1/3',
+      'Evaluating Functions and Function Tables': '1/1',
+      'Systems of Two Linear Equations': '3/3',
+      'Systems of Two Linear Equations in Two Variables': '3/3',
+      'Linear Inequalities': '1/2',
+      'Linear Inequalities in Two Variables': '1/2',
+      'Translating Math': '3/4',
+      'Words to Algebra': '3/4',
+      'Algebra to Words': '1/1',
+    });
+  });
+
+  it('matches the reference mastery tiers', () => {
+    expect(rw.mastery).toEqual({ mastered: 14, review: 18, instruction: 3, total: 35 });
+    expect(math.mastery).toEqual({ mastered: 18, review: 21, instruction: 12, total: 51 });
+  });
+
+  it('accepts every listed form of the -14/15 grid-in', () => {
+    const q = pt4.sections.find((s) => s.id === 'math2')!.questions[10];
+    const status = (a: string) => grade(pt4, { [q.id]: a }).questions.find((r) => r.question.id === q.id)!.status;
+    for (const a of ['-14/15', '-.9333', '-0.933', '-0.9333', '-28/30']) expect(status(a)).toBe('correct');
+    // -0.93333… rounds to -.9333, so -.9334 is neither rounded nor truncated.
+    expect(status('-.9334')).toBe('incorrect');
+  });
+});
+
 describe('graded outcomes', () => {
   it('override responses', () => {
     const q = sat.sections[0].questions[0];
@@ -135,7 +269,7 @@ describe('scaled scores', () => {
 
 describe('buildExam', () => {
   it('reports every problem with an incomplete key', () => {
-    const key = { id: 'k', name: 'k', formatId: SAT_FORMAT.id, isDemo: false, entries: [{ sectionId: 'rw1', number: 1, correct: ['Z'], category: '', subcategory: '' }] };
+    const key = { id: 'k', name: 'k', formatId: SAT_FORMAT.id, isDemo: false, entries: [{ sectionId: 'rw1', number: 1, correct: ['Z'], category: '', topics: [] }] };
     try {
       buildExam(SAT_FORMAT, key);
       expect.unreachable();

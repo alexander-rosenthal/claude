@@ -5,11 +5,14 @@
  *  - an ExamFormat: the shape of the test (sections, question counts, answer
  *    choices, score scales). One format is shared by every test form of that
  *    type (e.g. all digital SAT practice tests).
- *  - an AnswerKey: the correct answers and the category/subcategory of each
+ *  - an AnswerKey: the correct answers and the classification of each
  *    question for one specific test form.
  *
- * Categories are carried on the key so the grader never needs them; they only
- * feed the score report.
+ * Classification has three levels: a domain (the main category, one per
+ * question), then skills, each optionally narrowed to a subskill. A question
+ * can carry several (skill, subskill) tags, e.g. a sentence with both a
+ * punctuation and a run-on issue. Classification only feeds the score report;
+ * the grader never needs it.
  */
 
 export type QuestionType = 'mc' | 'spr'; // multiple choice | student-produced response (grid-in)
@@ -24,6 +27,8 @@ export interface SectionFormat {
   /** Extra labels accepted when parsing pasted/uploaded answers. */
   aliases: string[];
   questionCount: number;
+  /** Content depends on earlier performance (the digital SAT's second modules). */
+  adaptive?: boolean;
   /** Which score scale this section's raw points count toward. */
   scaleId: string;
   /** Answer choices for a given 1-based question number. */
@@ -87,13 +92,20 @@ export interface ExamFormat {
   scoreNote?: string;
 }
 
+/** One skill tag; `subskill` is '' when the tag stops at the skill level. */
+export interface Topic {
+  skill: string;
+  subskill: string;
+}
+
 export interface AnswerKeyEntry {
   sectionId: string;
   number: number;
   /** One or more acceptable answers; empty only in a results-only key. */
   correct: string[];
+  /** Domain: the main category. */
   category: string;
-  subcategory: string;
+  topics: Topic[];
 }
 
 export interface AnswerKey {
@@ -119,7 +131,7 @@ export interface Question {
   choices: string[];
   correct: string[];
   category: string;
-  subcategory: string;
+  topics: Topic[];
 }
 
 export interface Section extends Omit<SectionFormat, 'choicesFor'> {

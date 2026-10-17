@@ -425,6 +425,107 @@ table.data tr.sub td:first-child {
   border-radius: 4px;
 }
 
+/* ---- Skills tree ---- */
+.badge {
+  display: inline-block;
+  min-width: 44px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+}
+.badge.m-mastered {
+  background: var(--good);
+}
+.badge.m-review {
+  background: var(--warn);
+  color: #0b0b0b;
+}
+.badge.m-instruction {
+  background: var(--bad);
+}
+.mastery-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  align-items: center;
+  font-size: 13px;
+}
+.mastery-item {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.mastery-item .badge {
+  min-width: 28px;
+}
+.topics {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.topic-block {
+  border: 1px solid var(--grid);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.topic-row {
+  display: grid;
+  grid-template-columns: 52px minmax(140px, 1fr) minmax(0, 1.4fr) 64px;
+  gap: 4px 10px;
+  align-items: center;
+  padding: 6px 10px;
+  border-top: 1px solid var(--grid);
+}
+.topic-row.level-0 {
+  border-top: none;
+  background: var(--surface-2);
+  font-weight: 600;
+}
+.topic-row.level-2 .topic-name {
+  padding-left: 18px;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+.topic-count {
+  grid-column: -2 / -1;
+  grid-row: 1;
+  text-align: right;
+  color: var(--ink-2);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.topic-row.level-0 .topic-count {
+  color: var(--ink);
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  justify-content: flex-end;
+}
+.chip {
+  min-width: 30px;
+  padding: 0 4px;
+  height: 18px;
+  line-height: 18px;
+  border-radius: 9px;
+  font-size: 10px;
+  font-weight: 600;
+  text-align: center;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+.chip.omitted {
+  color: var(--ink);
+}
+.report-meta {
+  text-align: right;
+}
+
 .qstrip {
   display: flex;
   flex-wrap: wrap;
@@ -508,6 +609,17 @@ table.data tr.sub td:first-child {
   }
   .hide-sm {
     display: none;
+  }
+  .report-meta {
+    text-align: left;
+  }
+  .topic-row {
+    grid-template-columns: 48px minmax(0, 1fr) auto;
+  }
+  .topic-row .chips {
+    grid-column: 2 / -1;
+    grid-row: 2;
+    justify-content: flex-start;
   }
 }
 

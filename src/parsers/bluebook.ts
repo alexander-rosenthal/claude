@@ -27,7 +27,7 @@
  */
 import { isBlank, normalizeChoice, parseRational, sprMatches } from '../core/answers';
 import { buildExam } from '../core/exam';
-import type { AnswerKey, Exam, Outcomes, QuestionStatus } from '../core/types';
+import type { AnswerKey, Exam, Outcomes, QuestionStatus, Topic } from '../core/types';
 import { SAT_FORMAT } from '../exams/formats';
 import { SAT_MATH_TAXONOMY, SAT_RW_TAXONOMY } from '../exams/taxonomy';
 import { AnswerCollector, type ParseResult } from './collector';
@@ -54,9 +54,13 @@ const IGNORED = /^(review|view|explanation|details|show|hide|question|section)$/
 const DOMAINS = new Map(
   [...Object.keys(SAT_RW_TAXONOMY), ...Object.keys(SAT_MATH_TAXONOMY)].map((d) => [normalizeLabel(d), d]),
 );
+/** Skill and subskill names → their tag and domain. */
 const SKILLS = new Map(
   [...Object.entries(SAT_RW_TAXONOMY), ...Object.entries(SAT_MATH_TAXONOMY)].flatMap(([domain, skills]) =>
-    skills.map((skill) => [normalizeLabel(skill), { skill, domain }] as const),
+    Object.entries(skills).flatMap(([skill, subskills]) => [
+      [normalizeLabel(skill), { topic: { skill, subskill: '' }, domain }] as const,
+      ...subskills.map((subskill) => [normalizeLabel(subskill), { topic: { skill, subskill }, domain }] as const),
+    ]),
   ),
 );
 
@@ -87,11 +91,11 @@ interface RecordPieces {
   status?: QuestionStatus;
   answers: string[];
   category?: string;
-  subcategory?: string;
+  topics: Topic[];
 }
 
 function classify(tokens: string[]): RecordPieces {
-  const pieces: RecordPieces = { answers: [] };
+  const pieces: RecordPieces = { answers: [], topics: [] };
   for (const raw of tokens) {
     const token = raw.trim();
     if (!token || IGNORED.test(token)) continue;
@@ -116,7 +120,7 @@ function classify(tokens: string[]): RecordPieces {
     }
     const skill = SKILLS.get(label);
     if (skill) {
-      pieces.subcategory = skill.skill;
+      pieces.topics.push(skill.topic);
       pieces.category ??= skill.domain;
       continue;
     }
@@ -146,9 +150,9 @@ function splitRun(token: string, pieces: RecordPieces): boolean {
       found = true;
     }
   }
-  for (const [label, { skill, domain }] of SKILLS) {
+  for (const [label, { topic, domain }] of SKILLS) {
     if (rest.includes(` ${label} `)) {
-      pieces.subcategory = skill;
+      pieces.topics.push(topic);
       pieces.category ??= domain;
       rest = rest.replace(` ${label} `, ' ');
       found = true;
@@ -186,9 +190,8 @@ export function parseBluebook(exam: Exam, text: string): ParseResult {
 
   const outcomes: Outcomes = {};
   const categories: Record<string, string> = {};
-  const subcategories: Record<string, string> = {};
+  const topics: Record<string, Topic[]> = {};
   const keyMismatches: string[] = [];
-  const domainMismatches: string[] = [];
   const realKey = !exam.key.isDemo && !exam.key.resultsOnly;
   let placed = 0;
 
@@ -210,7 +213,7 @@ export function parseBluebook(exam: Exam, text: string): ParseResult {
 
     if (yours) collector.record(question, yours);
     if (pieces.category) categories[question.id] = pieces.category;
-    if (pieces.subcategory) subcategories[question.id] = pieces.subcategory;
+    if (pieces.topics.length) topics[question.id] = pieces.topics;
 
     let status = pieces.status;
     if (!status && pastedKey !== undefined) {
@@ -229,9 +232,6 @@ export function parseBluebook(exam: Exam, text: string): ParseResult {
           : question.correct.includes(normalizeChoice(pastedKey, question.choices).value ?? '');
       if (!agrees) keyMismatches.push(`${label} #${question.number}: pasted ${pastedKey}, key ${question.correct.join(' / ')}`);
     }
-    if (realKey && pieces.category && question.category !== 'Uncategorized' && normalizeLabel(question.category) !== normalizeLabel(pieces.category)) {
-      domainMismatches.push(`${label} #${question.number}`);
-    }
   }
 
   if (records.length === 0) collector.warn('No Bluebook question rows were found. Copy the whole question table from the score details page.');
@@ -243,9 +243,6 @@ export function parseBluebook(exam: Exam, text: string): ParseResult {
         `${keyMismatches.slice(0, 5).join('; ')}${keyMismatches.length > 5 ? '; …' : ''}`,
     );
   }
-  if (domainMismatches.length) {
-    collector.warn(`The pasted domains differ from the selected key's categories on ${domainMismatches.length} question(s) (${domainMismatches.slice(0, 5).join(', ')}${domainMismatches.length > 5 ? ', …' : ''}).`);
-  }
 
   const result = collector.result();
   const hasOutcomes = Object.keys(outcomes).length > 0;
@@ -254,7 +251,7 @@ export function parseBluebook(exam: Exam, text: string): ParseResult {
     answered: hasOutcomes ? placed : result.answered,
     ...(hasOutcomes ? { outcomes } : {}),
     ...(Object.keys(categories).length ? { categories } : {}),
-    ...(Object.keys(subcategories).length ? { subcategories } : {}),
+    ...(Object.keys(topics).length ? { topics } : {}),
   };
 }
 
@@ -277,7 +274,7 @@ function resultsOnlyExam(result?: ParseResult): Exam {
           number: i + 1,
           correct: [],
           category: result?.categories?.[id] ?? '',
-          subcategory: result?.subcategories?.[id] ?? '',
+          topics: result?.topics?.[id] ?? [],
         };
       }),
     ),
@@ -290,11 +287,73 @@ export function bluebookTargetExam(selected: Exam): Exam {
   return selected.format.id === SAT_FORMAT.id ? selected : resultsOnlyExam();
 }
 
+/** A digital key with real answers, whose answers and tags can enrich a paste. */
+export function hasUsableDigitalKey(exam: Exam): boolean {
+  return exam.format.id === SAT_FORMAT.id && !exam.key.isDemo && !exam.key.resultsOnly;
+}
+
+export interface BluebookGrading {
+  exam: Exam;
+  /** Shown before the report (possible mismatch). */
+  warnings: string[];
+  /** Shown on the report. */
+  notes: string[];
+}
+
+/** Pasted domains that disagree with the key's this often suggest another Module 2. */
+const MODULE_MISMATCH_RATIO = 0.25;
+
 /**
- * The exam to grade a Bluebook results paste with: the selected test when it
- * has a real digital answer key, otherwise one built from the paste itself.
+ * The exam to grade a Bluebook results paste with.
+ *
+ * With a real digital key selected, the paste is graded with Bluebook's
+ * outcomes while the key adds correct answers and skill tags. Module 1 is the
+ * same for every student, so it always uses the key. Module 2 is adaptive:
+ * the key's version is used only when `sameAdaptiveModules` says the student
+ * saw it. Without such a key, the exam is built from the paste alone.
  */
-export function examForBluebookResults(target: Exam, result: ParseResult): Exam {
-  if (target.format.id === SAT_FORMAT.id && !target.key.isDemo && !target.key.resultsOnly) return target;
-  return resultsOnlyExam(result);
+export function examForBluebookResults(target: Exam, result: ParseResult, sameAdaptiveModules = false): BluebookGrading {
+  if (!hasUsableDigitalKey(target)) return { exam: resultsOnlyExam(result), warnings: [], notes: [] };
+
+  const warnings: string[] = [];
+  const notes: string[] = [];
+  const entries = target.sections.flatMap((section) => {
+    const useKey = !section.adaptive || sameAdaptiveModules;
+    if (section.adaptive && sameAdaptiveModules) {
+      const compared = section.questions.filter((q) => result.categories?.[q.id] && q.category !== 'Uncategorized');
+      const differing = compared.filter((q) => normalizeLabel(q.category) !== normalizeLabel(result.categories![q.id]));
+      if (compared.length && differing.length / compared.length > MODULE_MISMATCH_RATIO) {
+        warnings.push(
+          `${section.name}: the pasted domains differ from the key on ${differing.length} of ${compared.length} questions, so the student probably saw a different Module 2 than the key covers.`,
+        );
+      }
+    }
+    return section.questions.map((q) => {
+      const pastedCategory = result.categories?.[q.id];
+      const pastedTopics = result.topics?.[q.id] ?? [];
+      const keyHasTags = useKey && q.topics.length > 0;
+      return {
+        sectionId: section.id,
+        number: q.number,
+        correct: useKey ? q.correct : [],
+        // A tagged key keeps its own domain so its skill tree stays consistent.
+        category: keyHasTags ? q.category : (pastedCategory ?? (useKey && q.category !== 'Uncategorized' ? q.category : '')),
+        topics: keyHasTags ? q.topics : pastedTopics,
+      };
+    });
+  });
+
+  if (!sameAdaptiveModules && target.sections.some((s) => s.adaptive)) {
+    notes.push(`Module 2 is adaptive, so its skills and correct answers from “${target.name}” are left out; only Bluebook’s domains are used for it.`);
+  }
+
+  const key: AnswerKey = {
+    id: `${target.key.id}+bluebook`,
+    name: `${target.name} (Bluebook results)`,
+    formatId: SAT_FORMAT.id,
+    isDemo: false,
+    resultsOnly: true,
+    entries,
+  };
+  return { exam: buildExam(SAT_FORMAT, key), warnings, notes };
 }
